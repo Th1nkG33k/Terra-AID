@@ -421,11 +421,13 @@ class MultimodalProcessor:
         source_root = Path(getattr(self.cfg, "raw_ground_truth_path", self.cfg.paths.root / "Raw" / "GroundTruth"))
         if not source_root.exists():
             return []
-
+        # ----------------------------------------------------------------------------
         # If a labels block exists, honour it.  If it does not exist, or if it
         # is the runtime default with type=None, fall back to the Terra-AID
         # convention used by labelled validation datasets:
         #   Raw/GroundTruth/<tile folder>/archaeology_selected.geojson
+        # ----------------------------------------------------------------------------
+
         source = getattr(labels, "source", None) if labels is not None else None
         source_pattern = getattr(labels, "source_pattern", None) if labels is not None else None
         if not source_pattern:
@@ -443,9 +445,12 @@ class MultimodalProcessor:
 
         raw_tile_folder = s2_path.parent.parent.name
 
+        # ----------------------------------------------------------------------------
         # Try to recover a useful tile index from the raw S2 filename, raw tile
         # folder, or processed folder.  This covers both ``tile 0`` and
         # ``tile_0_0`` style naming.
+        # ----------------------------------------------------------------------------
+
         stem_tokens = s2_path.stem.replace("-", "_").replace(" ", "_").split("_")
         name_tokens = tile_dir.name.replace("-", "_").replace(" ", "_").split("_")
         raw_tokens = raw_tile_folder.replace("-", "_").replace(" ", "_").split("_")
@@ -496,8 +501,11 @@ class MultimodalProcessor:
             for filename in filenames:
                 candidates.append(token_dir / filename)
 
+        # ----------------------------------------------------------------------------
         # Last-resort shallow search.  This is deliberately limited to one
         # folder level, so it does not become an expensive recursive scan.
+        # ----------------------------------------------------------------------------
+
         for filename in filenames:
             candidates.extend(source_root.glob(f"*/{filename}"))
 
@@ -512,10 +520,13 @@ class MultimodalProcessor:
 
         labels = getattr(self.cfg, "labels", None)
 
+        # ----------------------------------------------------------------------------
         # Do not require a persisted labels block.  Ground-truth rasterisation is
         # triggered by the presence of a matching vector file under
         # Raw/GroundTruth.  If labels.type is explicitly set to a non-vector
         # value, skip; otherwise auto-detect.
+        # ----------------------------------------------------------------------------
+
         label_type = getattr(labels, "type", None) if labels is not None else None
         if label_type not in (None, "", "vector"):
             return None
@@ -525,7 +536,6 @@ class MultimodalProcessor:
         label_path = None
         for candidate in candidates:
             exists = candidate.exists()
-            #print(f"[GT]   exists={exists}  {candidate}")
 
             if exists and label_path is None:
                 label_path = candidate
@@ -545,10 +555,13 @@ class MultimodalProcessor:
         if not geometries:
             print(f"[WARN] Ground-truth label contains no supported geometries: {label_path}")
             return None
-
+        
+        # ----------------------------------------------------------------------------
         # GeoJSON labels are assumed to be EPSG:4326 unless a labels.crs
         # override is provided.  Reproject vector geometries to the processed
         # raster CRS before rasterisation so masks align with model_input.tif.
+        # ----------------------------------------------------------------------------
+
         raster_crs = raster_profile.get("crs")
         label_crs = getattr(labels, "crs", None) if labels is not None else None
         label_crs = label_crs or "EPSG:4326"
@@ -640,9 +653,12 @@ class MultimodalProcessor:
         print(f"[BUILD TILE] s2_path: {s2_path}")
         s2_path = Path(s2_path)
 
+        # ----------------------------------------------------------------------------
         # Include the source batch folder in the tile id. Nile has repeated
         # nile_tile_0.tif ... nile_tile_10.tif inside each "Tile N/images"
         # folder, so using only the file stem overwrites previous batches.
+        # ----------------------------------------------------------------------------
+        
         batch_id = s2_path.parent.parent.name.replace(" ", "_")
         tile_id = f"{batch_id}_{s2_path.stem.split('_')[-1]}"
         tile_dir = self.processed_root / f"tile {tile_id}"

@@ -22,9 +22,6 @@ class ControlSelectSearch(ControlSelectBase):
 
         # Load dataset configs
         pm = PathManager()
-        # self.dm = SearchManager(pm.DATASET_CONFIGS)
-
-        # self.dataset_list = self._build_search_list()
 
 
     # ------------------------------------------------------------
@@ -136,19 +133,19 @@ class ControlSelectSearch(ControlSelectBase):
         
         return name
 
-
+    # ------------------------------------------------------------------
+    #   Opens the control as a modal popup window.
+    #   Blocks until user selects an item or cancels.
+    #   Returns the selected dataset name (or None).   
+    # ------------------------------------------------------------------
     def show(self, parent_window):
-        """
-        Opens the control as a modal popup window.
-        Blocks until user selects an item or cancels.
-        Returns the selected dataset name (or None).
-        """
+
 
         # self.build() already returns a Column or Frame layout
         control_layout = self.build(parent_window)
 
         win = sg.Window(self.title,
-                        [[control_layout]],   # <-- THIS is the correct wrapping
+                        [[control_layout]],   
                         modal=True,
                         keep_on_top=True,
                         finalize=True,

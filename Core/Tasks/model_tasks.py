@@ -26,28 +26,31 @@ def _progress(worker, pct, message):
     if worker:
         worker.progress(f"{pct}% - {message}")
 
-def _dataset_visual_root(model_cfg, dataset_name):
-    """Return the single per-dataset Visuals folder for a model run.
+# ----------------------------------------------------------------------------
+# Return the single per-dataset Visuals folder for a model run.
 
-    All outputs for a dataset/model combination live under:
-        Data/Models/<model>/Visuals/<dataset_name>/
-    so the whole run can be exported by copying that folder.
-    """
+# All outputs for a dataset/model combination live under:
+# Data/Models/<model>/Visuals/<dataset_name>/
+# so the whole run can be exported by copying that folder.
+# ----------------------------------------------------------------------------
+def _dataset_visual_root(model_cfg, dataset_name):
+   
 
     safe_name = str(dataset_name or "unknown_dataset").strip() or "unknown_dataset"
     return model_cfg.paths.outputs / safe_name
 
+# ----------------------------------------------------------------------------
+    # Ensure prediction uses the latest calibration output for this model/dataset.
+
+    # Calibration writes a report file and should also persist the selected threshold
+    # into the model YAML.  In practice, prediction should not rely only on an
+    # already-loaded ModelConfig object because the UI/worker may still hold stale
+    # threshold values.  This helper reads the latest calibration_summary.json and
+    # applies the selected threshold to the runtime config immediately before
+    # prediction.
+# ----------------------------------------------------------------------------
 
 def _apply_latest_calibration_to_model_cfg(model_cfg, dataset_name, worker=None):
-    """Ensure prediction uses the latest calibration output for this model/dataset.
-
-    Calibration writes a report file and should also persist the selected threshold
-    into the model YAML.  In practice, prediction should not rely only on an
-    already-loaded ModelConfig object because the UI/worker may still hold stale
-    threshold values.  This helper reads the latest calibration_summary.json and
-    applies the selected threshold to the runtime config immediately before
-    prediction.
-    """
 
     calibration_path = _dataset_visual_root(model_cfg, dataset_name) / "calibration" / "calibration_summary.json"
 
@@ -194,17 +197,25 @@ def train_model_task(model_name, dataset_name, model_manager, dataset_manager, w
 # ---------------------------------------------------------
 def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager, worker=None, workflow="predictive", **kwargs):
 
+    # ---------------------------------------------------------
     # Always reload before prediction so the task cannot use stale threshold
     # values from before the most recent calibration run.
+    # ---------------------------------------------------------
+
     model_manager.reload()
     dataset_manager.reload()
 
-    _progress(worker, 5, "Checking prediction compatibility")
+    workflow = str(workflow or "predictive").lower()
+    if workflow not in {"predictive", "evaluation"}:
+        workflow = "predictive"
+    workflow_label = "evaluation" if workflow == "predictive" else "prediction"
+
+    _progress(worker, 5, f"Checking {workflow_label} compatibility")
     compatibility = model_manager.check_dataset_compatibility(model_name, dataset_name)
 
     if not compatibility.get("compatible"):
         raise RuntimeError(
-            "Prediction blocked because the model and dataset profiles do not match.\n"
+            f"{workflow_label.capitalize()} blocked because the model and dataset profiles do not match.\n"
             f"Model profile: {compatibility.get('model_profile')} "
             f"({compatibility.get('model_channels')} channels)\n"
             f"Dataset profile: {compatibility.get('dataset_profile')} "
@@ -220,8 +231,11 @@ def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager
     if ds_cfg is None:
         raise RuntimeError(f"Dataset not found: {dataset_name}")
 
+    # ---------------------------------------------------------
     # Runtime channel names come from the model's training dataset. They are not
     # duplicated in the model YAML.
+    # ---------------------------------------------------------
+
     train_ds_name = getattr(cfg, "training_dataset", None)
     train_ds_cfg = dataset_manager.get(train_ds_name) if train_ds_name else None
     if train_ds_cfg is not None:
@@ -230,20 +244,16 @@ def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager
 
     _apply_latest_calibration_to_model_cfg(cfg, dataset_name, worker=worker)
 
-    workflow = str(workflow or "predictive").lower()
-    if workflow not in {"predictive", "evaluation"}:
-        workflow = "predictive"
-
     role = str(getattr(ds_cfg, "role", "mixed") or "mixed").lower()
-    role = {"prediction": "predictive", "validation": "predictive", "ground_truth": "predictive",
+    role = {"prediction": "evaluation", "validation": "predictive", "ground_truth": "predictive",
             "survey": "evaluation", "discovery": "evaluation"}.get(role, role)
 
     if workflow == "predictive" and role != "predictive":
-        raise RuntimeError(f"Predictive testing requires dataset role 'predictive'; '{dataset_name}' has role '{role}'.")
+        raise RuntimeError(f"Model evaluation requires a labelled evaluation/ground-truth dataset; '{dataset_name}' has role '{role}'.")
     if workflow == "evaluation" and role != "evaluation":
-        raise RuntimeError(f"Evaluation/discovery requires dataset role 'evaluation'; '{dataset_name}' has role '{role}'.")
+        raise RuntimeError(f"Prediction/anomaly discovery requires a prediction/discovery dataset; '{dataset_name}' has role '{role}'.")
 
-    _progress(worker, 15, "Preparing prediction outputs")
+    _progress(worker, 15, f"Preparing {workflow_label} outputs")
     predictor = PredictionManager(threshold_percentile=95.0)
     output_folder = "predictive_test" if workflow == "predictive" else "evaluation"
     save_dir = _dataset_visual_root(cfg, dataset_name) / output_folder
@@ -255,9 +265,9 @@ def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager
                                         worker=worker,
     )
 
-    _progress(worker, 100, "Prediction complete")
+    _progress(worker, 100, f"{workflow_label.capitalize()} complete")
 
-    return {"message": "Prediction completed successfully.",
+    return {"message": f"{workflow_label.capitalize()} completed successfully.",
             "output_dir": str(Path(save_dir)),
             "summary_path": str(Path(save_dir) / "prediction_summary.json"),
             "summary_csv_path": str(Path(save_dir) / "prediction_summary.csv"),
@@ -279,8 +289,11 @@ def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager
 def calibrate_prediction_threshold_task(model_name, dataset_name, model_manager, dataset_manager,
                                         worker=None, percentiles=None, metric="fp_penalised_f1", **kwargs):
 
+    # ---------------------------------------------------------
     # Reload before calibration so thresholds are selected from the latest model
     # and dataset configuration rather than a stale UI object.
+    # ---------------------------------------------------------
+
     model_manager.reload()
     dataset_manager.reload()
 
@@ -306,12 +319,15 @@ def calibrate_prediction_threshold_task(model_name, dataset_name, model_manager,
         raise RuntimeError(f"Dataset not found: {dataset_name}")
 
     role = str(getattr(ds_cfg, "role", "mixed") or "mixed").lower()
-    role = {"prediction": "predictive", "validation": "predictive", "ground_truth": "predictive"}.get(role, role)
+    role = {"prediction": "evaluation", "validation": "predictive", "ground_truth": "predictive"}.get(role, role)
     if role != "predictive":
-        raise RuntimeError(f"Threshold calibration requires dataset role 'predictive'; '{dataset_name}' has role '{role}'.")
+        raise RuntimeError(f"Threshold calibration requires a labelled evaluation/ground-truth dataset; '{dataset_name}' has role '{role}'.")
 
+    # ---------------------------------------------------------
     # Runtime channel names come from the model's training dataset. They are not
     # duplicated in the model YAML.
+    # ---------------------------------------------------------
+
     train_ds_name = getattr(cfg, "training_dataset", None)
     train_ds_cfg = dataset_manager.get(train_ds_name) if train_ds_name else None
     if train_ds_cfg is not None:
@@ -323,8 +339,11 @@ def calibrate_prediction_threshold_task(model_name, dataset_name, model_manager,
     save_dir = _dataset_visual_root(cfg, dataset_name) / "calibration"
 
     if percentiles is None:
+        # ---------------------------------------------------------
         # Keep the old broad sweep, but add more resolution where false-positive
         # controlled thresholds usually land.
+        # ---------------------------------------------------------
+
         percentiles = [50, 60, 70, 75, 80, 85, 88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 99.5, 99.8, 99.9]
 
     summary = predictor.calibrate_threshold(model_cfg=cfg,
@@ -336,9 +355,13 @@ def calibrate_prediction_threshold_task(model_name, dataset_name, model_manager,
                                             worker=worker,
     )
 
+
+    # ---------------------------------------------------------
     # Save the calibrated threshold into the model config. This does not add any
     # channel duplication; it only records how future predictions should threshold
     # anomaly scores.
+    # ---------------------------------------------------------
+    
     best = summary.get("best", {}) or {}
     prediction_cfg = cfg.cfg.setdefault("prediction", {})
     selection = summary.get("selection", {}) or {}

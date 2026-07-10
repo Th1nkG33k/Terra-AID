@@ -8,7 +8,7 @@ import rasterio
 from pathlib import Path
 from PIL import Image
 from Interface.pages.view_base import ViewerBase
-from ..theme import RText, RButton, COLORS, RHText
+from ..theme import RText, RButton, COLORS, RHText, FONTS
 from Core.Managers.path_manager import PathManager
 from Core.Pytorch.pytorch_manager import MultimodalTileDataset
 from Core.Utils.image_utility import ImageUtility
@@ -32,6 +32,7 @@ class DatasetViewer(ViewerBase):
         self.visuals_panel = None
         self.processing_panel = None
         self.band_col = None
+        self.info_fields = {}
 
         # PyTorch + visuals
         self.torch_dataset = None
@@ -41,6 +42,51 @@ class DatasetViewer(ViewerBase):
         self.pm = PathManager()
 
     # ------------------------------------------------------------
+    # Information layout helpers
+    # ------------------------------------------------------------
+    def _info_value(self, key, width=36):
+        text = sg.Text(
+            "-",
+            key=key,
+            size=(width, 1),
+            font=FONTS["body"],
+            text_color=COLORS["text_primary"],
+            background_color=COLORS["bg_dark"],
+        )
+        self.info_fields[key] = text
+        return text
+
+    def _info_row(self, label, key, width=36):
+        return [
+            sg.Text(
+                label,
+                size=(16, 1),
+                font=FONTS["body"],
+                text_color=COLORS["text_secondary"],
+                background_color=COLORS["bg_dark"],
+                justification="right",
+            ),
+            self._info_value(key, width=width),
+        ]
+
+    def _update_info(self, key, value):
+        field = self.info_fields.get(key)
+        if field:
+            field.update("-" if value in (None, "") else str(value))
+
+    def _display_role(self, role):
+        role = str(role or "mixed").strip().lower()
+        mapping = {
+            "predictive": "evaluation",
+            "ground_truth": "evaluation",
+            "validation": "evaluation",
+            "evaluation": "prediction",
+            "discovery": "prediction",
+            "survey": "prediction",
+        }
+        return mapping.get(role, role)
+
+    # ------------------------------------------------------------
     # BUILD PAGE
     # ------------------------------------------------------------
     def build_views(self):
@@ -48,25 +94,35 @@ class DatasetViewer(ViewerBase):
         # ------------------------------------------------------------
         # Information
         # ------------------------------------------------------------
-        self.txt_name = RText("Name: -")
-        self.txt_stage_role = RText("Stage / Role: -")
-        self.txt_aoi = RText("AOI: -")
-        self.txt_tiles = RText("Tiles: -")
-        self.txt_structure = RText("Tile Structure: -")
-        self.txt_inputs = RText("Model Inputs: -")
-        self.txt_masks = RText("Mask / QC Layers: -")
-        self.txt_processing = RText("Processing: -")
+        left_info = sg.Column(
+            [
+                self._info_row("Name", f"{self.key}_INFO_NAME"),
+                self._info_row("Stage", f"{self.key}_INFO_STAGE"),
+                self._info_row("Role", f"{self.key}_INFO_ROLE"),
+                self._info_row("AOI", f"{self.key}_INFO_AOI", width=50),
+                self._info_row("Tiles", f"{self.key}_INFO_TILES"),
+            ],
+            background_color=COLORS["bg_dark"],
+            pad=((0, 25), (0, 0)),
+            vertical_alignment="top",
+        )
+
+        right_info = sg.Column(
+            [
+                self._info_row("Structure", f"{self.key}_INFO_STRUCTURE"),
+                self._info_row("Tile Size", f"{self.key}_INFO_TILE_SIZE"),
+                self._info_row("Model Inputs", f"{self.key}_INFO_INPUTS", width=55),
+                self._info_row("Mask / QC", f"{self.key}_INFO_MASKS", width=55),
+                self._info_row("Processing", f"{self.key}_INFO_PROCESSING", width=55),
+            ],
+            background_color=COLORS["bg_dark"],
+            pad=((25, 0), (0, 0)),
+            vertical_alignment="top",
+        )
 
         info_layout = [
-                        [RHText("Dataset Information")],
-                        [self.txt_name],
-                        [self.txt_stage_role],
-                        [self.txt_aoi],
-                        [self.txt_tiles],
-                        [self.txt_structure],
-                        [self.txt_inputs],
-                        [self.txt_masks],
-                        [self.txt_processing],
+            [RHText("Dataset Information")],
+            [left_info, sg.VSeparator(color=COLORS["line_bright"]), right_info],
         ]
 
         view_info = sg.Column(info_layout,
@@ -75,7 +131,6 @@ class DatasetViewer(ViewerBase):
                               background_color=COLORS["bg_dark"],
         )
         self.add_view("info", view_info)
-
 
         # ------------------------------------------------------------
         # Visualisations
@@ -136,10 +191,12 @@ class DatasetViewer(ViewerBase):
     def load_dataset(self, cfg, window):
         
         self.cfg = cfg
-
+        # ---------------------------------------------------------------------
         # Update concise, user-facing dataset information.
         # The old full band TRUE/FALSE list was useful during development,
         # but it made the top of the page too noisy for normal use.
+        # ---------------------------------------------------------------------
+
         def _safe(value, default="-"):
             return default if value in (None, "") else value
 
@@ -161,14 +218,16 @@ class DatasetViewer(ViewerBase):
             f"Indices: {_safe(getattr(processing, 'include_indices', None))}",
         ]
 
-        self.txt_name.update(f"Name: {cfg.dataset_name}")
-        self.txt_stage_role.update(f"Stage: {_safe(cfg.stage)}  |  Role: {_safe(getattr(cfg, 'role', None))}")
-        self.txt_aoi.update(f"AOI: Lat {cfg.min_lat}–{cfg.max_lat}  |  Lon {cfg.min_lon}–{cfg.max_lon}")
-        self.txt_tiles.update(f"Tiles: {_safe(cfg.tile_count)}  |  Structure: {_safe(getattr(cfg, 'structure', None))}")
-        self.txt_structure.update(f"Tile Size: {tile_width} x {tile_height}  |  Format: {tile_format}")
-        self.txt_inputs.update(f"Model Inputs: {_safe(getattr(cfg, 'num_input_channels', None))} channels  |  {_list_text(getattr(cfg, 'input_channels', []))}")
-        self.txt_masks.update(f"Mask / QC Layers: {_list_text(getattr(cfg, 'mask_channels', []))}")
-        self.txt_processing.update("Processing: " + "  |  ".join(proc_parts))
+        self._update_info(f"{self.key}_INFO_NAME", cfg.dataset_name)
+        self._update_info(f"{self.key}_INFO_STAGE", _safe(cfg.stage))
+        self._update_info(f"{self.key}_INFO_ROLE", self._display_role(getattr(cfg, 'role', None)))
+        self._update_info(f"{self.key}_INFO_AOI", f"Lat {cfg.min_lat}–{cfg.max_lat}  |  Lon {cfg.min_lon}–{cfg.max_lon}")
+        self._update_info(f"{self.key}_INFO_TILES", _safe(cfg.tile_count))
+        self._update_info(f"{self.key}_INFO_STRUCTURE", _safe(getattr(cfg, 'structure', None)))
+        self._update_info(f"{self.key}_INFO_TILE_SIZE", f"{tile_width} x {tile_height}  |  {tile_format}")
+        self._update_info(f"{self.key}_INFO_INPUTS", f"{_safe(getattr(cfg, 'num_input_channels', None))} channels  |  {_list_text(getattr(cfg, 'input_channels', []))}")
+        self._update_info(f"{self.key}_INFO_MASKS", _list_text(getattr(cfg, 'mask_channels', [])))
+        self._update_info(f"{self.key}_INFO_PROCESSING", "  |  ".join(proc_parts))
 
         # Apply stage logic
         self.apply_stage(cfg.stage)
@@ -210,10 +269,12 @@ class DatasetViewer(ViewerBase):
         # PANEL VISIBILITY LOGIC (converted to model-viewer style)
         # ------------------------------------------------------------
         if stage in ("processed", "ready", "statistics_generated"):
+
             # ------------------------------------------------------------
             # Do not show the full stitched RGB by default. It can be too large
             # for PIL/Tkinter and is not needed for tile-level model work.
             # ------------------------------------------------------------
+            
             self.btn_rgb.update(visible=False)
             self.tile_selector.update(visible=True)
             self.btn_tile_rgb.update(visible=True)

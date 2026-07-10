@@ -21,11 +21,14 @@ from Core.Utils.channel_policy import DEFAULT_BANDS, get_model_input_channels, g
 # ============================================================
 class DatasetManager:
 
+    # --------------------------------------------------------
+    # Backwards-compatible constructor:
+    # - new code passes config_manager=AppContext.configs
+    # - old code may still pass a configs_dir path
+    # --------------------------------------------------------
 
     def __init__(self, configs_dir: str | Path = None, config_manager: ConfigManager | None = None):
-        # Backwards-compatible constructor:
-        # - new code passes config_manager=AppContext.configs
-        # - old code may still pass a configs_dir path
+
         self.config_manager = config_manager
 
         if self.config_manager is not None:
@@ -56,14 +59,15 @@ class DatasetManager:
 
         role = (dataset_role or "mixed").lower()
         mode = (mode or "all").lower()
-
+        # --------------------------------------------------------
         # Canonical roles:
         #   training   -> used to train reconstruction models
-        #   predictive -> labelled/ground-truth datasets used to test models and calibrate thresholds
-        #   evaluation -> unlabelled survey/discovery datasets used to find anomalies
-        # Backwards-compatible aliases are accepted for older configs/UI calls.
+        #   predictive -> labelled/ground-truth datasets used to evaluate models and calibrate thresholds
+        #   evaluation -> unlabelled survey/discovery datasets used for prediction/anomaly discovery
+        #   Backwards-compatible aliases are accepted for older configs/UI calls.
+        # --------------------------------------------------------
         aliases = {
-            "prediction": "predictive",
+            "prediction": "evaluation",
             "validation": "predictive",
             "ground_truth": "predictive",
             "survey": "evaluation",
@@ -171,12 +175,17 @@ class DatasetManager:
         label = str(values.get("-CDC_ROLE-", "Training") or "Training").strip().lower()
         mapping = {
             "training": "training",
+            # New UI terminology:
+            #   Evaluation = labelled/ground-truth model evaluation.
+            #   Prediction = unlabelled anomaly discovery.
+            # Internal role names remain backwards-compatible with existing configs.
+            "evaluation": "predictive",
+            "prediction": "evaluation",
+            # Legacy labels / aliases.
             "predictive": "predictive",
-            "prediction": "predictive",
             "ground truth": "predictive",
             "ground_truth": "predictive",
             "validation": "predictive",
-            "evaluation": "evaluation",
             "discovery": "evaluation",
             "survey": "evaluation",
         }
@@ -287,10 +296,12 @@ class DatasetManager:
         for folder in ["Dataset", "Visuals", "Raw/S2", "Raw/DEM", "Raw/Soil", "Raw/GroundTruth"]:
             (dataset_root / folder).mkdir(parents=True, exist_ok=True)
 
+        # --------------------------------------------------------
         # Ground-truth tile collections store vector labels below
         # Raw/GroundTruth/<tile folder>/archaeology_selected.geojson.
         # The processor will later rasterise those vectors into
         # Dataset/<tile folder>/ground_truth.tif.
+        # --------------------------------------------------------
 
         project_config_path = dataset_root / f"{dataset_name}.yaml"
         central_config_path = self.pm.DATASET_CONFIGS / f"{dataset_name}.yaml"
@@ -326,9 +337,10 @@ class DatasetManager:
     #    Automatically updates the dataset stage and saves the config.
     # ---------------------------------------------------------
     def process_dataset(self, dataset_name):
-
+        # --------------------------------------------------------
         # Reload configs before processing so manual YAML edits are picked
         # up without needing to restart the application.
+        # --------------------------------------------------------
         self.reload()
 
         cfg = self.get(dataset_name)

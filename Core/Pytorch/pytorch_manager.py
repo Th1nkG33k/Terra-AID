@@ -55,11 +55,11 @@ class MultimodalTileDataset(Dataset):
         )
 
 
-    # ---------------------------------------------------------
+    
     def __len__(self):
         return len(self.tile_dirs)
 
-    # ---------------------------------------------------------
+    
     def __getitem__(self, idx):
         tile_dir = self.tile_dirs[idx]
 
@@ -73,7 +73,7 @@ class MultimodalTileDataset(Dataset):
 
         return x, meta
 
-    # ---------------------------------------------------------
+    
     def _load_metadata(self, tile_dir):
         meta_path = tile_dir / "metadata.json"
         if meta_path.exists():
@@ -102,7 +102,7 @@ class MultimodalTileDataset(Dataset):
             print(f"[WARN] Could not load channel stats: {exc}")
             return None
 
-    # ---------------------------------------------------------
+    
     def _load_raster(self, path):
 
         with rasterio.open(path) as src:
@@ -110,7 +110,7 @@ class MultimodalTileDataset(Dataset):
         
         return torch.from_numpy(arr.astype(np.float32))
 
-    # ---------------------------------------------------------
+    
     def _resize(self, tensor):
 
         if tensor.shape[1:] != (self.tile_size, self.tile_size):
@@ -162,9 +162,12 @@ class MultimodalTileDataset(Dataset):
                 x = torch.from_numpy(src.read().astype(np.float32))
                 descriptions = list(src.descriptions or [])
 
+            # ----------------------------------------------------------------------------
             # Prefer real band descriptions from model_input.tif. If an older
             # file has blank descriptions, fall back to metadata/profile names
             # so prediction can align channels by B2/B3/... instead of channel_1.
+            # ----------------------------------------------------------------------------
+
             profile_names = []
 
             if self.cfg is not None:
@@ -189,8 +192,11 @@ class MultimodalTileDataset(Dataset):
                 else:
                     channel_names.append(f"channel_{i + 1}")
 
+            # ----------------------------------------------------------------------------
             # If an old model_input.tif still contains mask/QC bands such as SCL,
             # filter it to the runtime-derived model input channels.
+            # ----------------------------------------------------------------------------
+
             desired = list(getattr(self.cfg, "input_channels", []) or []) if self.cfg is not None else []
             if desired and channel_names:
                 lookup = {str(name).upper(): i for i, name in enumerate(channel_names)}
@@ -234,8 +240,11 @@ class MultimodalTileDataset(Dataset):
                 tensors.append(t)
                 channel_names.append(f"{prefix}_{i + 1}")
 
+        # ----------------------------------------------------------------------------
         # Sentinel-2 stack bands. For older datasets that do not have
         # model_input.tif, try to name channels from the dataset profile.
+        # ----------------------------------------------------------------------------
+
         profile_channels = []
 
         if self.cfg is not None:
@@ -285,15 +294,18 @@ class MultimodalTileDataset(Dataset):
 
         x = torch.cat(tensors, dim=0)
 
+        # ----------------------------------------------------------------------------
         # Expose the real depth to callers. This is intentionally calculated
         # from the actual files, not guessed from the dataset config.
+        # ----------------------------------------------------------------------------
+        
         meta["channel_count"] = int(x.shape[0])
         meta["channel_names"] = channel_names
         meta["channel_source_order"] = ["S2_stack.tif", "indices.tif", "DEM.tif", "SOIL.tif", "QC.tif"]
 
         return self._normalise(x)
 
-    # ---------------------------------------------------------
+    
     def _normalise(self, x):
 
         x = x.float()

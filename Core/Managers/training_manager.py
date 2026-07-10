@@ -382,20 +382,6 @@ class TrainingManager:
                                          worker=worker,
                 )
 
-            # # -------------------------------------------------
-            # # Early stopping
-            # # -------------------------------------------------
-            # if val_mse < best_val_loss:
-            #     best_val_loss = val_mse
-            #     patience_counter = 0
-            #     torch.save(model.state_dict(), save_dir / f"{model_name}.pt")
-
-            # else:
-            #     patience_counter += 1
-
-            #     if patience_counter >= patience:
-            #         torch.save(model.state_dict(), save_dir / f"{model_name}.pt")
-            #         break
             # -------------------------------------------------
             # Checkpointing + early stopping
             # -------------------------------------------------

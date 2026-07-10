@@ -14,7 +14,6 @@ class ModelBase(ABC):
         pass
 
     def get_xai_target_layer(self):
-        """
-        Optional. Only needed for models such as ResNet50.
-        """
+        
+        # Optional. Only needed for models such as ResNet50.
         return None

@@ -125,7 +125,7 @@ class ModelManager:
         if dataset_cfg is not None:
             role = getattr(dataset_cfg, "role", "mixed")
 
-            role = {"prediction": "predictive", "validation": "predictive", "ground_truth": "predictive"}.get(role, role)
+            role = {"prediction": "evaluation", "validation": "predictive", "ground_truth": "predictive"}.get(role, role)
 
             if role not in {"predictive", "evaluation", "mixed"}:
                 raise ValueError(f"Dataset '{dataset_name}' has role '{role}' and cannot be used for model prediction/evaluation.")

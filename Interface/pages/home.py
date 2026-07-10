@@ -50,9 +50,12 @@ class PageHome:
             w=0.30,
         )
 
+        # ---------------------------------------------------------------------
         # Use home-specific keys here.  The Dataset and Model pages keep their
         # existing selector keys, which prevents duplicate keys and keeps those
         # page links working as before.
+        # ---------------------------------------------------------------------
+        
         actions_row = [
             RButton("Load Dataset", "-HOME_LOAD_DATASET-", w=0.15),
             RButton("Load Model", "-HOME_LOAD_MODEL-", w=0.15),
@@ -67,13 +70,12 @@ class PageHome:
             actions_row,
         ]
 
-        return sg.Column(
-            layout,
-            key=self.key,
-            expand_x=True,
-            expand_y=True,
-            background_color=COLORS["bg_dark"],
-            visible=False,
+        return sg.Column(layout,
+                         key=self.key,
+                         expand_x=True,
+                         expand_y=True,
+                         background_color=COLORS["bg_dark"],
+                         visible=False,
         )
 
     def _safe(self, value, default="-"):

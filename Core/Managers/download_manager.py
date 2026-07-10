@@ -4,10 +4,11 @@ import json
 from datetime import datetime
 
 # ---------------------------------------------------------
-# 1. INITIALISE EARTH ENGINE
+# INITIALISE EARTH ENGINE
 #
 # Google Earth Engine's pip package is called `earthengine-api`,
 # but the module is imported as `ee`.
+# app loop is added to file as this is loaded in a popup
 # ---------------------------------------------------------
 try:
     import ee
@@ -37,7 +38,7 @@ def initialise_earth_engine(project_id: str = EE_PROJECT_ID) -> None:
         ee.Initialize(project=project_id)
 
 # ---------------------------------------------------------
-# 2. YOUR BOUNDING BOXES
+# BOUNDING BOXES
 # ---------------------------------------------------------
 BOUNDING_BOXES = [
                     [-1.875, 51.145, -1.775, 51.205],
@@ -52,7 +53,7 @@ DATASET_NAME = "custom_s2_s1"
 folder_name = f"{DATASET_NAME}_dataset"
 
 # ---------------------------------------------------------
-# 3. LOAD SENTINEL-2 (OPTICAL)
+# LOAD SENTINEL-2 (OPTICAL)
 # ---------------------------------------------------------
 s2_bands = ["B2", "B3", "B4", "B8", "B11", "B12", "SCL"]
 
@@ -79,7 +80,7 @@ def load_s2(aoi):
     return s2_clean.median().clip(aoi)
 
 # ---------------------------------------------------------
-# 4. LOAD SENTINEL-1 (SAR)
+# LOAD SENTINEL-1 (SAR)
 # ---------------------------------------------------------
 def load_s1(aoi):
     s1 = (
@@ -94,7 +95,7 @@ def load_s1(aoi):
     return s1.median().clip(aoi)
 
 # ---------------------------------------------------------
-# 5. BUILD STACK FOR A GIVEN AOI
+# BUILD STACK FOR A GIVEN AOI
 # ---------------------------------------------------------
 def build_stack(aoi):
     s2 = load_s2(aoi)
@@ -115,7 +116,7 @@ def build_stack(aoi):
     return s2.addBands(s1).addBands(ndvi).addBands(bsi).toFloat()
 
 # ---------------------------------------------------------
-# 6. EXPORT LOOP
+# EXPORT LOOP
 # ---------------------------------------------------------
 def main():
     initialise_earth_engine()

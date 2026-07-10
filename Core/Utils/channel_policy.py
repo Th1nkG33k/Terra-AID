@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-"""Central channel policy for Terra-AID.
+# ==========================================================================
+# Central channel policy for Terra-AID.
 
-Saved dataset YAML contains one channel list only: ``bands.included``.
-This module derives model-input channels and mask/QC channels in code so
-configs do not duplicate profile/input-channel data.
-"""
+# Saved dataset YAML contains one channel list only: ``bands.included``.
+# This module derives model-input channels and mask/QC channels in code so
+# configs do not duplicate profile/input-channel data.
+# ==========================================================================
 
 MASK_ONLY_CHANNELS = {"SCL", "QA", "QA60", "QC", "VALID_MASK", "CLOUD_MASK"}
 DEFAULT_BANDS = ["B2", "B3", "B4", "B8", "B11", "B12", "SCL", "NDVI", "BSI"]
@@ -33,8 +34,11 @@ def unique_channels(channels) -> list[str]:
     return out
 
 
+# --------------------------------------------------------------------
+# Return channels physically requested/available for a dataset.
+# --------------------------------------------------------------------
 def get_download_bands(dataset_cfg_or_dict) -> list[str]:
-    """Return channels physically requested/available for a dataset."""
+    
     if dataset_cfg_or_dict is None:
         return []
 
@@ -47,8 +51,11 @@ def get_download_bands(dataset_cfg_or_dict) -> list[str]:
     return unique_channels(bands)
 
 
+# --------------------------------------------------------------------
+# Split one physical channel list into model inputs and mask/QC channels.
+# --------------------------------------------------------------------
 def split_input_and_mask_channels(channels, allow_categorical: bool = False):
-    """Split one physical channel list into model inputs and mask/QC channels."""
+    
     input_channels, mask_channels = [], []
     seen_input, seen_mask = set(), set()
 
@@ -101,8 +108,12 @@ def get_rgb_channels(dataset_cfg_or_dict) -> list[str]:
     return list(order or DEFAULT_RGB)
 
 
+# --------------------------------------------------------------------
+# Compatibility object for old code. Do not save this to YAML.
+# --------------------------------------------------------------------
+
 def make_runtime_profile(dataset_cfg_or_dict):
-    """Compatibility object for old code. Do not save this to YAML."""
+    
     from types import SimpleNamespace
     inputs = get_model_input_channels(dataset_cfg_or_dict)
     masks = get_mask_channels(dataset_cfg_or_dict)

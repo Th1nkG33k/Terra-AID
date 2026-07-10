@@ -10,16 +10,14 @@ def _get(cfg, key, default=None):
     
     return getattr(cfg, key, default)
 
-
+# ---------------------------------------------------------------------
+# ResNet-50 encoder-decoder reconstruction model.
+# Sentinel-2/multimodal inputs can have more than 3 channels. A 1x1
+# projection maps the full input stack to 3 channels so ImageNet pretrained
+# ResNet weights can still be used, while the decoder reconstructs the full
+# original channel stack.
+# ---------------------------------------------------------------------
 class ResNetAutoencoder(nn.Module):
-    """
-    ResNet-50 encoder-decoder reconstruction model.
-
-    Sentinel-2/multimodal inputs can have more than 3 channels. A 1x1
-    projection maps the full input stack to 3 channels so ImageNet pretrained
-    ResNet weights can still be used, while the decoder reconstructs the full
-    original channel stack.
-    """
 
     def __init__(self, in_channels=15, backbone="resnet50", pretrained=True, decoder_channels=(512, 256, 128, 64)):
         
@@ -118,8 +116,10 @@ class ResNetAutoencoder(nn.Module):
         return "resnet_autoencoder"
 
     def get_xai_target_layer(self):
+        # ---------------------------------------------------------------------
         # Last convolutional block of the ResNet encoder gives the most
         # semantically rich spatial features for Grad-CAM.
+        # ---------------------------------------------------------------------
         return self.layer4[-1]
 
 

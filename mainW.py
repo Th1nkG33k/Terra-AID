@@ -255,8 +255,11 @@ def handle_control_event(event, values):
         show_model_view(selected_model)
         return True
 
+    # ---------------------------------------------------------------------
     # Home-page shortcuts still use the modal selectors. This keeps the
     # home page quick links working without reusing the embedded page keys.
+    # ---------------------------------------------------------------------
+
     if event in ("-CONTROL_SELECT_DATASET-", "-HOME_LOAD_DATASET-"):
         selector = ControlSelectDataset(dataset_manager)
         selected_dataset = selector.show(window)
@@ -305,7 +308,7 @@ def handle_active_page_event(event, values):
 def _canonical_dataset_role(dataset_name):
     ds = dataset_manager.get(dataset_name)
     role = str(getattr(ds, "role", "mixed") if ds else "mixed").lower()
-    return {"prediction": "predictive", "validation": "predictive", "ground_truth": "predictive",
+    return {"prediction": "evaluation", "validation": "predictive", "ground_truth": "predictive",
             "survey": "evaluation", "discovery": "evaluation"}.get(role, role)
 
 def _check_model_dataset_compatibility(model_name, dataset_name, purpose):
@@ -364,9 +367,11 @@ def handle_task_event(event, values):
         return True
 
     if event == "-TASK_MODEL_SET_PREDICTION_DATASET-":
+        # ---------------------------------------------------------------------
         # Backwards-compatible handler for older view_model versions.
         # New role-based UI keeps predictive/evaluation dataset selections local
         # to the page and passes them directly to the relevant task.
+        # ---------------------------------------------------------------------
         data = values[event]
         model_name = data.get("model_name") if isinstance(data, dict) else None
         dataset_name = data.get("dataset_name") if isinstance(data, dict) else None
@@ -406,18 +411,18 @@ def handle_task_event(event, values):
             dataset_name = None
 
         if not model_name or not dataset_name:
-            sg.popup_error("Choose a predictive/ground-truth dataset before running model testing.")
+            sg.popup_error("Choose an evaluation/ground-truth dataset before running model evaluation.")
             return True
 
         role = _canonical_dataset_role(dataset_name)
         if role != "predictive":
             sg.popup_error(
-                "Predict + Metrics requires a dataset with role: predictive.\n\n"
+                "Evaluate + Metrics requires a labelled evaluation/ground-truth dataset.\n\n"
                 f"Selected dataset '{dataset_name}' has role: {role}"
             )
             return True
 
-        if _check_model_dataset_compatibility(model_name, dataset_name, "predictive") is None:
+        if _check_model_dataset_compatibility(model_name, dataset_name, "evaluation") is None:
             return True
 
         active_task_windows["predictive_test"] = PageCreateModelTask()
@@ -440,13 +445,13 @@ def handle_task_event(event, values):
         dataset_name = payload.get("dataset_name") if isinstance(payload, dict) else None
 
         if not model_name or not dataset_name:
-            sg.popup_error("Choose an evaluation/discovery dataset before finding anomalies.")
+            sg.popup_error("Choose a prediction/discovery dataset before finding anomalies.")
             return True
 
         role = _canonical_dataset_role(dataset_name)
         if role != "evaluation":
             sg.popup_error(
-                "Find Anomalies requires a dataset with role: evaluation.\n\n"
+                "Find Anomalies requires a prediction/discovery dataset.\n\n"
                 f"Selected dataset '{dataset_name}' has role: {role}"
             )
             return True
@@ -485,7 +490,7 @@ def handle_task_event(event, values):
         role = _canonical_dataset_role(dataset_name)
         if role != "predictive":
             sg.popup_error(
-                "Threshold calibration requires a dataset with role: predictive.\n\n"
+                "Threshold calibration requires a labelled evaluation/ground-truth dataset.\n\n"
                 f"Selected dataset '{dataset_name}' has role: {role}"
             )
             return True
@@ -646,12 +651,13 @@ def handle_worker_messages():
 
             if msg_type == "result" and task_id in {"run_prediction", "predictive_test", "evaluation_discovery"} and isinstance(data, dict):
 
-                sg.popup_scrolled(f"Prediction completed.\n\n"
+                workflow_name = "Evaluation" if data.get("workflow") == "predictive" else "Prediction"
+                sg.popup_scrolled(f"{workflow_name} completed.\n\n"
                                   f"Dataset: {data.get('dataset')}\n"
                                   f"Tiles: {data.get('tile_count')}\n"
                                   f"Outputs: {data.get('output_dir')}\n"
                                   f"Summary: {data.get('summary_path')}",
-                                  title="Prediction Complete",
+                                  title=f"{workflow_name} Complete",
                                   size=(90, 12),
                 )
 

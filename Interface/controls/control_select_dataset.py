@@ -20,8 +20,11 @@ class ControlSelectDataset(ControlSelectBase):
         self.button_load_key = "-CTL_SEL_DS_LOAD-"
         self.button_cancel_key = "-CTL_SEL_DS_CANCEL-"
 
+        # ------------------------------------------------------------------
         # DatasetManager is normally supplied by AppContext.
         # Fall back to creating one so older callers still work during refactor.
+        # ------------------------------------------------------------------
+        
         self.dm = dataset_manager or DatasetManager()
 
         self.dataset_list = self._build_dataset_list()
@@ -33,15 +36,28 @@ class ControlSelectDataset(ControlSelectBase):
     def _title_for_mode(self, mode):
 
         titles = {"training": "Select Training Dataset",
-                  "predictive": "Select Predictive / Ground-Truth Dataset",
-                  "prediction": "Select Predictive / Ground-Truth Dataset",
-                  "evaluation": "Select Evaluation / Discovery Dataset",
-                  "validation": "Select Predictive / Ground-Truth Dataset",
+                  "predictive": "Select Evaluation / Ground-Truth Dataset",
+                  "prediction": "Select Prediction / Discovery Dataset",
+                  "evaluation": "Select Prediction / Discovery Dataset",
+                  "validation": "Select Evaluation / Ground-Truth Dataset",
                   "all": "Select Dataset",
         }
 
         return titles.get((mode or "all").lower(), "Select Dataset")
 
+
+
+    def _display_role(self, role):
+        role = str(role or "mixed").strip().lower()
+        mapping = {
+            "predictive": "evaluation",
+            "ground_truth": "evaluation",
+            "validation": "evaluation",
+            "evaluation": "prediction",
+            "discovery": "prediction",
+            "survey": "prediction",
+        }
+        return mapping.get(role, role)
 
     # ------------------------------------------------------------
     # Build list of datasets from configs
@@ -53,7 +69,7 @@ class ControlSelectDataset(ControlSelectBase):
             name = opt["key"]
             tile_count = opt.get("tile_count") or "?"
             stage = opt.get("stage") or "unknown"
-            role = opt.get("role") or "mixed"
+            role = self._display_role(opt.get("role") or "mixed")
             structure = opt.get("structure") or "aoi_grid"
             channels = opt.get("num_input_channels") or "?"
 

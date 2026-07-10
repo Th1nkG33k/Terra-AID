@@ -5,10 +5,10 @@ import traceback
 from typing import Any, Callable, Dict, Optional
 
 # ============================================================
-#   WORKER
+#  WORKER
 #
-    # Runs a long‑running task in a background thread.
-    # Communicates with the UI via a thread‑safe queue.
+#  Runs a long‑running task in a background thread.
+#  Communicates with the UI via a thread‑safe queue.
 # ============================================================
 class Worker:
 
@@ -77,10 +77,10 @@ class Worker:
 
 
 # ============================================================
-#   TASK MANAGER
+#  TASK MANAGER
 #
-    # Manages multiple background tasks.
-    # Polls messages from workers and cleans up finished tasks.
+#    Manages multiple background tasks.
+#    Polls messages from workers and cleans up finished tasks.
 # ============================================================
 class TaskManager:
 

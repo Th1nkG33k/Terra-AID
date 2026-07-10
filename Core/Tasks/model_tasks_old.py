@@ -122,8 +122,11 @@ def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager
     if ds_cfg is None:
         raise RuntimeError(f"Dataset not found: {dataset_name}")
 
+    # ----------------------------------------------------------------------------
     # Runtime channel names come from the model's training dataset. They are not
     # duplicated in the model YAML.
+    # ----------------------------------------------------------------------------
+    
     train_ds_name = getattr(cfg, "training_dataset", None)
     train_ds_cfg = dataset_manager.get(train_ds_name) if train_ds_name else None
     if train_ds_cfg is not None:

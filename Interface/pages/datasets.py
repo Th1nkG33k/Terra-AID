@@ -46,6 +46,18 @@ class PageDatasets:
         value = value or all_label
         return None if value == all_label else str(value).strip().lower()
 
+    def _display_role(self, role):
+        role = str(role or "mixed").strip().lower()
+        mapping = {
+            "predictive": "evaluation",
+            "ground_truth": "evaluation",
+            "validation": "evaluation",
+            "evaluation": "prediction",
+            "discovery": "prediction",
+            "survey": "prediction",
+        }
+        return mapping.get(role, role)
+
     def _build_dataset_items(self):
         self.dm.reload()
         items = []
@@ -58,15 +70,16 @@ class PageDatasets:
             tile_count = self._safe(opt.get("tile_count"), "?")
             stage = self._safe(opt.get("stage"), "unknown")
             role = self._safe(opt.get("role"), "mixed")
+            display_role = self._display_role(role)
             structure = self._safe(opt.get("structure"), "aoi_grid")
             channels = self._safe(opt.get("num_input_channels"), "?")
 
-            label = f"{tile_count} tiles | {stage} | {role} | {structure} | {channels} model ch"
+            label = f"{tile_count} tiles | {stage} | {display_role} | {structure} | {channels} model ch"
             items.append({
                 "name": name,
                 "label": label,
                 "stage": str(stage),
-                "role": str(role),
+                "role": str(display_role),
             })
 
         self.dataset_items = items

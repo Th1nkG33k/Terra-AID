@@ -3,10 +3,10 @@ import PySimpleGUI as sg
 from Interface.theme import RSideButton
 
 # ============================================================
-#   SIDEBAR MANAGER
+#  SIDEBAR MANAGER
 #
-    # Manages sidebar navigation buttons and their mapping to page keys.
-    # Each button emits its page_key directly as the event.
+#  Manages sidebar navigation buttons and their mapping to page keys.
+#  Each button emits its page_key directly as the event.
 # ============================================================
 class SidebarManager:
 

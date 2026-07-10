@@ -35,7 +35,7 @@ class StatisticsProcessor:
         if not self.tile_dirs:
             raise RuntimeError(f"No tile folders found using pattern '{self.pattern}' in {self.root}")
 
-    # ---------------------------------------------------------
+    
     def run(self):
 
         stacks = self._load_model_input_stacks()
@@ -47,7 +47,7 @@ class StatisticsProcessor:
         self._compute_correlation(stacks)
         self._compute_umap(stacks)
 
-    # ---------------------------------------------------------
+    
     def _load_model_input_stacks(self):
 
         stacks = []
@@ -67,7 +67,7 @@ class StatisticsProcessor:
 
         return stacks
 
-    # ---------------------------------------------------------
+    
     def _compute_histograms(self, stacks):
 
         import matplotlib.pyplot as plt
@@ -88,7 +88,7 @@ class StatisticsProcessor:
         fig.savefig(out)
         plt.close(fig)
 
-    # ---------------------------------------------------------
+    
     def _compute_correlation(self, stacks):
 
         band_count = stacks[0].shape[0]
@@ -123,7 +123,7 @@ class StatisticsProcessor:
         fig.savefig(out_png)
         plt.close(fig)
 
-    # ---------------------------------------------------------
+    
     def _compute_umap(self, stacks, max_samples=200_000):
         
         band_count = stacks[0].shape[0]

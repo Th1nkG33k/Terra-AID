@@ -89,34 +89,46 @@ RESPONSIVE_READY = False
 RESPONSIVE_DEBUG = False
 
 
+# ---------------------------------------------------------------------
+# Enable/disable resize debug output.
+# ---------------------------------------------------------------------
 def set_responsive_debug(enabled=True):
-    """Enable/disable resize debug output."""
+    
     global RESPONSIVE_DEBUG
     RESPONSIVE_DEBUG = bool(enabled)
 
 
+# ---------------------------------------------------------------------
+# Convenience helper. You can also set theme.RESPONSIVE_READY = True directly.
+# ---------------------------------------------------------------------
 def set_responsive_ready(ready=True):
-    """Convenience helper. You can also set theme.RESPONSIVE_READY = True directly."""
+    
     global RESPONSIVE_READY
     RESPONSIVE_READY = bool(ready)
 
 
+# ---------------------------------------------------------------------
+# Use when rebuilding large parts of the UI to prevent stale widgets accumulating.
+# ---------------------------------------------------------------------
 def clear_responsive_registry():
-    """Use when rebuilding large parts of the UI to prevent stale widgets accumulating."""
     RESPONSIVE_REGISTRY.clear()
 
 
+# ---------------------------------------------------------------------
+# Register an element + resize function pair.
+# ---------------------------------------------------------------------
 def register_responsive(element, resize_fn):
-    """Register an element + resize function pair."""
+    
     RESPONSIVE_REGISTRY.append((element, resize_fn))
     return element
 
 
+# ---------------------------------------------------------------------
+# True if the widget or one of its parents is currently mapped.
+# Hidden pages/columns can otherwise drift when resized.
+# ---------------------------------------------------------------------
 def _widget_is_mapped(widget):
-    """
-    True if the widget or one of its parents is currently mapped.
-    Hidden pages/columns can otherwise drift when resized.
-    """
+
     try:
 
         current = widget
@@ -132,11 +144,12 @@ def _widget_is_mapped(widget):
     return True
 
 
+# ---------------------------------------------------------------------
+# Called from mainW.py on resize/page-change events.
+# Safely updates registered responsive elements.
+# ---------------------------------------------------------------------
 def update_responsive_components(window):
-    """
-    Called from mainW.py on resize/page-change events.
-    Safely updates registered responsive elements.
-    """
+
     if not RESPONSIVE_READY:
         return
 
@@ -201,25 +214,25 @@ def clamp(value, min_value=None, max_value=None):
 
 
 def vw(win_w, percent, min_px=150, max_px=None):
-    """Viewport width in pixels."""
+    # Viewport width in pixels.
     return clamp(int(win_w * percent), min_px, max_px)
 
 
 def vh(win_h, percent, min_px=80, max_px=None):
-    """Viewport height in pixels."""
+    # Viewport height in pixels.
     return clamp(int(win_h * percent), min_px, max_px)
 
 
 def chars(win_w, percent, min_chars=8, max_chars=120):
-    """
-    Tkinter text/button/input widths are usually character units, not pixels.
-    This converts a window percentage into an approximate character count.
-    """
+    # ---------------------------------------------------------------------
+    # Tkinter text/button/input widths are usually character units, not pixels.
+    # This converts a window percentage into an approximate character count.
+    # ---------------------------------------------------------------------
     return clamp(int((win_w * percent) / 9), min_chars, max_chars)
 
 
 def rows(win_h, percent, min_rows=3, max_rows=40):
-    """Approximate Tkinter text row count from window height."""
+    # Approximate Tkinter text row count from window height.
     return clamp(int((win_h * percent) / 22), min_rows, max_rows)
 
 
@@ -593,8 +606,11 @@ def RBannerImage(path, key="-HEADER_BANNER-", w=1.00, h_ratio=0.08, min_h=55, ma
     def resize(win_w, win_h):
 
         try:
+            # ---------------------------------------------------------------------
             # Fixed-height banner box. The image is fitted inside it without
             # stretching, so the logo keeps its proportions on all window sizes.
+            # ---------------------------------------------------------------------
+            
             width = vw(win_w, w, min_px=300, max_px=max(win_w - 20, 300))
             height = clamp(int(win_h * h_ratio), min_h, max_h)
             data = _fit_banner_bytes(width, height)

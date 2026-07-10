@@ -16,8 +16,11 @@ class ControlSelectModel(ControlSelectBase):
         self.button_load_key = "-CTL_SEL_MODEL_LOAD-"
         self.button_cancel_key = "-CTL_SEL_MODEL_CANCEL-"
 
+        # ------------------------------------------------------------------
         # ModelManager is normally supplied by AppContext.
         # Fall back to creating one so older callers still work during refactor.
+        # ------------------------------------------------------------------
+        
         self.mm = model_manager or ModelManager()
 
         # Build list of models

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import PySimpleGUI as sg
 
-from Interface.theme import COLORS, RText, RButton
+from Interface.theme import COLORS, FONTS, RText, RHText, RButton
 from Interface.pages.view_base import ViewerBase
 from Interface.controls.control_select_dataset import ControlSelectDataset
 from Core.Utils.image_utility import ImageUtility
@@ -22,107 +22,258 @@ class ModelViewer(ViewerBase):
         self.window = None
         self.img_util = ImageUtility()
 
-        # These are UI selections only. Dataset purpose is defined by the
-        # dataset role, not by writing dataset mappings into the model YAML.
-        self.selected_predictive_dataset = None   # role: predictive, labelled model test/calibration data
-        self.selected_evaluation_dataset = None   # role: evaluation, unlabelled anomaly discovery data
+        # Internal names are kept backwards-compatible with the existing
+        # task/workflow code. The UI now presents these as:
+        #   predictive dataset -> Evaluation Dataset (labelled / ground truth)
+        #   evaluation dataset -> Prediction Dataset (unlabelled anomaly search)
+        self.selected_predictive_dataset = None
+        self.selected_evaluation_dataset = None
 
-        self.txt_name = None
-        self.txt_arch = None
-        self.txt_optimizer = None
-        self.txt_training = None
-        self.txt_scheduler = None
-        self.txt_profile = None
-        self.txt_dataset = None
-        self.txt_predictive = None
-        self.txt_evaluation = None
+        self.info_fields = {}
+        self.txt_evaluation_dataset = None
+        self.txt_prediction_dataset = None
         self.txt_profile_status = None
 
+        self.training_select_dataset_col = None
+        self.training_train_col = None
+        self.training_visuals_col = None
+        self.evaluation_actions_col = None
+        self.prediction_actions_col = None
+
     # ------------------------------------------------------------
-    # Build stacked views (static layout)
+    # Small layout helpers
+    # ------------------------------------------------------------
+    def _info_value(self, key, width=38):
+        text = sg.Text(
+            "-",
+            key=key,
+            size=(width, 1),
+            font=FONTS["body"],
+            text_color=COLORS["text_primary"],
+            background_color=COLORS["bg_dark"],
+        )
+        self.info_fields[key] = text
+        return text
+
+    def _info_row(self, label, key, width=38):
+        return [
+            sg.Text(
+                label,
+                size=(18, 1),
+                font=FONTS["body"],
+                text_color=COLORS["text_secondary"],
+                background_color=COLORS["bg_dark"],
+                justification="right",
+            ),
+            self._info_value(key, width=width),
+        ]
+
+    def _asset_path(self, filename):
+        if not filename:
+            return None
+        return Path(__file__).resolve().parents[2] / "assets" / filename
+
+    def _visual_button(self, text, key, image_filename=None):
+        """
+        Clickable visualisation tile. If the named image exists in /assets it is
+        used as the button image; otherwise a neat text button is used. This lets
+        image assets be added later without another code refactor.
+        """
+        image_path = self._asset_path(image_filename)
+        common = {
+            "key": key,
+            "font": FONTS["body"],
+            "button_color": (COLORS["text_primary"], COLORS["bg_panel"]),
+            "mouseover_colors": (COLORS["text_primary"], COLORS["accent_teal"]),
+            "border_width": 1,
+            "pad": (8, 8),
+        }
+
+        if image_path and image_path.exists():
+            return sg.Button(
+                "",
+                image_filename=str(image_path),
+                image_size=(165, 95),
+                **common,
+            )
+
+        return sg.Button(text, size=(18, 4), **common)
+
+    # ------------------------------------------------------------
+    # Build static layout
     # ------------------------------------------------------------
     def build_views(self):
-        self.txt_name = RText("Name: -")
-        self.txt_arch = RText("Architecture: -")
-        self.txt_optimizer = RText("Optimizer: -")
-        self.txt_training = RText("Training: -")
-        self.txt_scheduler = RText("Scheduler: -")
-        self.txt_profile = RText("Input Profile: -")
-        self.txt_dataset = RText("Training Dataset: -")
-        self.txt_predictive = RText("Predictive/Test Dataset: -")
-        self.txt_evaluation = RText("Evaluation/Discovery Dataset: -")
-        self.txt_profile_status = RText("Profile Check: -")
+        # -----------------------------
+        # Professional two-column header
+        # -----------------------------
+        left_info = sg.Column(
+            [
+                self._info_row("Name", f"{self.key}_INFO_NAME"),
+                self._info_row("Stage", f"{self.key}_INFO_STAGE"),
+                self._info_row("Architecture", f"{self.key}_INFO_ARCH"),
+                self._info_row("Input Channels", f"{self.key}_INFO_CHANNELS"),
+                self._info_row("Training Dataset", f"{self.key}_INFO_TRAIN_DS"),
+                self._info_row("Model Inputs", f"{self.key}_INFO_INPUTS", width=52),
+            ],
+            background_color=COLORS["bg_dark"],
+            pad=((0, 25), (0, 0)),
+            vertical_alignment="top",
+        )
+
+        right_info = sg.Column(
+            [
+                self._info_row("Optimizer", f"{self.key}_INFO_OPT"),
+                self._info_row("Learning Rate", f"{self.key}_INFO_LR"),
+                self._info_row("Weight Decay", f"{self.key}_INFO_WEIGHT_DECAY"),
+                self._info_row("Training", f"{self.key}_INFO_TRAINING", width=52),
+                self._info_row("Scheduler", f"{self.key}_INFO_SCHEDULER"),
+                self._info_row("Architecture Config", f"{self.key}_INFO_ARCH_CFG", width=52),
+            ],
+            background_color=COLORS["bg_dark"],
+            pad=((25, 0), (0, 0)),
+            vertical_alignment="top",
+        )
 
         info_layout = [
-            [RText("Information")],
-            [self.txt_name],
-            [self.txt_arch],
-            [self.txt_optimizer],
-            [self.txt_training],
-            [self.txt_scheduler],
-            [self.txt_profile],
-            [self.txt_dataset],
+            [RHText("Information")],
+            [left_info, sg.VSeparator(color=COLORS["line_bright"]), right_info],
         ]
 
-        view_info = sg.Column(info_layout, key=f"{self.key}_INFO", visible=False,
-                              background_color=COLORS["bg_dark"])
-        self.add_view("info", view_info)
+        # -----------------------------
+        # Training tab
+        # -----------------------------
+        self.training_select_dataset_col = sg.Column(
+                [
+                    [RText("Training Dataset")],
+                    [RText("Choose the processed dataset used to train this model.", color=COLORS["text_secondary"])],
+                    [RButton("Select Training Dataset", key=f"{self.key}_TRAIN_DATASET", w=0.22)],
+                ],
+                key=f"{self.key}_TRAINING_SELECT_DATASET_PANEL",
+                background_color=COLORS["bg_dark"],
+                visible=False,
+                pad=(0, 10),
+            )
 
-        vis_layout = [
-            [RText("Visualisations")],
-            [
-                RButton("Results", key=f"{self.key}_RESULTS"),
-                RButton("Loss Curve", key=f"{self.key}_LOSS_CURVE"),
-                RButton("Loss Metrics", key=f"{self.key}_LOSS_METRICS"),
-                RButton("Heatmap", key=f"{self.key}_HEATMAP"),
-                RButton("Arch Score", key=f"{self.key}_ARCH_SCORE"),
-                RButton("Anomaly Map", key=f"{self.key}_ANOMALY_MAP"),
-                RButton("Clustering", key=f"{self.key}_CLUSTER"),
-            ],
+        self.training_train_col = sg.Column(
+                [
+                    [RText("Training")],
+                    [RText("Run the selected model architecture against the assigned training dataset.", color=COLORS["text_secondary"])],
+                    [RButton("Train Model", key=f"{self.key}_TRAIN", w=0.18)],
+                ],
+                key=f"{self.key}_TRAINING_RUN_PANEL",
+                background_color=COLORS["bg_dark"],
+                visible=False,
+                pad=(0, 10),
+            )
+
+        self.training_visuals_col = sg.Column(
+                [
+                    [RText("Visualisations")],
+                    [
+                        self._visual_button("Results", f"{self.key}_RESULTS", "model_results.png"),
+                        self._visual_button("Loss Curve", f"{self.key}_LOSS_CURVE", "model_loss_curve.png"),
+                        self._visual_button("Loss Metrics", f"{self.key}_LOSS_METRICS", "model_loss_metrics.png"),
+                        self._visual_button("Channel Heatmap", f"{self.key}_HEATMAP", "model_channel_heatmap.png"),
+                    ],
+                    [
+                        self._visual_button("Architecture Score", f"{self.key}_ARCH_SCORE", "model_arch_score.png"),
+                        self._visual_button("Anomaly Map", f"{self.key}_ANOMALY_MAP", "model_anomaly_map.png"),
+                        self._visual_button("Clustering", f"{self.key}_CLUSTER", "model_clustering.png"),
+                    ],
+                ],
+                key=f"{self.key}_TRAINING_VISUALS_PANEL",
+                background_color=COLORS["bg_dark"],
+                visible=False,
+                pad=(0, 10),
+            )
+
+        training_tab_layout = [
+            [self.training_select_dataset_col],
+            [self.training_train_col],
+            [self.training_visuals_col],
         ]
 
-        view_visuals = sg.Column(vis_layout, key=f"{self.key}_VISUALS", visible=False,
-                                 background_color=COLORS["bg_dark"])
-        self.add_view("visuals", view_visuals)
+        # -----------------------------
+        # Evaluation tab: labelled ground-truth model evaluation
+        # -----------------------------
+        self.txt_evaluation_dataset = RText("Evaluation Dataset: -")
+        self.evaluation_actions_col = sg.Column(
+                [
+                    [RText("Evaluation")],
+                    [RText("Use a labelled ground-truth dataset to evaluate model performance and calibrate thresholds.", color=COLORS["text_secondary"])],
+                    [self.txt_evaluation_dataset],
+                    [
+                        RButton("Select Evaluation Dataset", key=f"{self.key}_PREDICTIVE_DATASET", w=0.24),
+                        RButton("Evaluate + Metrics", key=f"{self.key}_PREDICTIVE_TEST", w=0.20),
+                        RButton("Calibrate Threshold", key=f"{self.key}_CALIBRATE_THRESHOLD", w=0.20),
+                    ],
+                ],
+                key=f"{self.key}_EVALUATION_ACTIONS_PANEL",
+                background_color=COLORS["bg_dark"],
+                visible=False,
+                pad=(0, 10),
+            )
 
-        data_layout = [
-            [RText("Dataset")],
-            [RButton("Select Training Dataset", key=f"{self.key}_TRAIN_DATASET")],
+        evaluation_tab_layout = [[self.evaluation_actions_col]]
+
+        # -----------------------------
+        # Prediction tab: anomaly discovery on user datasets
+        # -----------------------------
+        self.txt_prediction_dataset = RText("Prediction Dataset: -")
+        self.txt_profile_status = RText("Profile Check: -", color=COLORS["text_secondary"])
+        self.prediction_actions_col = sg.Column(
+                [
+                    [RText("Prediction")],
+                    [RText("Run the trained model against an unlabelled dataset to find potential anomalies.", color=COLORS["text_secondary"])],
+                    [self.txt_prediction_dataset],
+                    [
+                        RButton("Select Prediction Dataset", key=f"{self.key}_EVALUATION_DATASET", w=0.24),
+                        RButton("Find Anomalies", key=f"{self.key}_EVALUATE", w=0.18),
+                    ],
+                    [self.txt_profile_status],
+                ],
+                key=f"{self.key}_PREDICTION_ACTIONS_PANEL",
+                background_color=COLORS["bg_dark"],
+                visible=False,
+                pad=(0, 10),
+            )
+
+        prediction_tab_layout = [[self.prediction_actions_col]]
+
+        tabs = sg.TabGroup(
+            [[
+                sg.Tab("Training", training_tab_layout, key=f"{self.key}_TAB_TRAINING", background_color=COLORS["bg_dark"]),
+                sg.Tab("Evaluation", evaluation_tab_layout, key=f"{self.key}_TAB_EVALUATION", background_color=COLORS["bg_dark"]),
+                sg.Tab("Prediction", prediction_tab_layout, key=f"{self.key}_TAB_PREDICTION", background_color=COLORS["bg_dark"]),
+            ]],
+            key=f"{self.key}_TABGROUP",
+            enable_events=True,
+            background_color=COLORS["bg_dark"],
+            tab_background_color=COLORS["bg_panel"],
+            selected_background_color=COLORS["accent_teal"],
+            selected_title_color=COLORS["text_primary"],
+            title_color=COLORS["text_primary"],
+            border_width=0,
+            expand_x=True,
+            expand_y=True,
+            pad=((0, 0), (18, 0)),
+        )
+
+        main_layout = [
+            *info_layout,
+            [tabs],
         ]
 
-        view_dataset = sg.Column(data_layout, key=f"{self.key}_TRAINING_DATASET", visible=False,
-                                 background_color=COLORS["bg_dark"])
-        self.add_view("dataset", view_dataset)
-
-        train_layout = [
-            [RText("Training")],
-            [RButton("Train", key=f"{self.key}_TRAIN")],
-        ]
-
-        view_training = sg.Column(train_layout, key=f"{self.key}_TRAINING", visible=False,
-                                  background_color=COLORS["bg_dark"])
-        self.add_view("training", view_training)
-
-        prediction_layout = [
-            [RText("Predictive Testing / Calibration")],
-            [self.txt_predictive],
-            [
-                RButton("Select Predictive Dataset", key=f"{self.key}_PREDICTIVE_DATASET"),
-                RButton("Predict + Metrics", key=f"{self.key}_PREDICTIVE_TEST"),
-                RButton("Calibrate Threshold", key=f"{self.key}_CALIBRATE_THRESHOLD"),
-            ],
-            [RText("Evaluation / Discovery")],
-            [self.txt_evaluation],
-            [
-                RButton("Select Evaluation Dataset", key=f"{self.key}_EVALUATION_DATASET"),
-                RButton("Find Anomalies", key=f"{self.key}_EVALUATE"),
-            ],
-            [self.txt_profile_status],
-        ]
-
-        view_prediction = sg.Column(prediction_layout, key=f"{self.key}_PREDICTION", visible=False,
-                                    background_color=COLORS["bg_dark"])
-        self.add_view("prediction", view_prediction)
+        main_view = sg.Column(
+            main_layout,
+            key=f"{self.key}_MAIN",
+            visible=False,
+            background_color=COLORS["bg_dark"],
+            expand_x=True,
+            expand_y=True,
+            pad=(0, 0),
+        )
+        self.add_view("main", main_view)
 
     # ------------------------------------------------------------
     # Formatting helpers
@@ -140,77 +291,88 @@ class ModelViewer(ViewerBase):
         ds = self.dataset_manager.get(cfg.training_dataset)
         return list(getattr(ds, "input_channels", []) or []) if ds else []
 
-    def _architecture_summary(self, cfg):
+    def _architecture_config_text(self, cfg):
         arc = getattr(cfg, "architecture", None)
         if arc is None:
-            return "Architecture: -"
+            return "-"
 
         arc_type = str(getattr(arc, "type", "mae"))
-        derived_channels = self._training_dataset_channels(cfg)
-        channel_count = len(derived_channels) if derived_channels else getattr(arc, "num_channels", None)
-        parts = [f"Architecture: {arc_type}", f"Channels: {self._safe(channel_count)}"]
-
         if arc_type == "mae":
-            parts.extend([
-                f"Enc Depth: {self._safe(getattr(arc, 'encoder_depth', None))}",
-                f"Dec Depth: {self._safe(getattr(arc, 'decoder_depth', None))}",
-                f"Embed Dim: {self._safe(getattr(arc, 'embed_dim', None))}",
-                f"Dec Dim: {self._safe(getattr(arc, 'decoder_dim', None))}",
-                f"Mask Ratio: {self._safe(getattr(arc, 'mask_ratio', None))}",
-                f"Base Channels: {self._safe(getattr(arc, 'base_channels', None))}",
-            ])
+            parts = [
+                f"Enc Depth {self._safe(getattr(arc, 'encoder_depth', None))}",
+                f"Dec Depth {self._safe(getattr(arc, 'decoder_depth', None))}",
+                f"Embed {self._safe(getattr(arc, 'embed_dim', None))}",
+                f"Dec Dim {self._safe(getattr(arc, 'decoder_dim', None))}",
+                f"Mask {self._safe(getattr(arc, 'mask_ratio', None))}",
+                f"Base {self._safe(getattr(arc, 'base_channels', None))}",
+            ]
         elif arc_type == "cnn_autoencoder":
-            parts.extend([
-                f"Depth: {self._safe(getattr(arc, 'encoder_depth', None))}",
-                f"Base Channels: {self._safe(getattr(arc, 'base_channels', None))}",
-                f"Latent Channels: {self._safe(getattr(arc, 'latent_channels', None))}",
-            ])
+            parts = [
+                f"Depth {self._safe(getattr(arc, 'encoder_depth', None))}",
+                f"Base {self._safe(getattr(arc, 'base_channels', None))}",
+                f"Latent {self._safe(getattr(arc, 'latent_channels', None))}",
+            ]
         elif arc_type == "resnet_autoencoder":
-            parts.extend([
-                f"Backbone: {self._safe(getattr(arc, 'backbone', None))}",
-                f"Pretrained: {self._safe(getattr(arc, 'pretrained', None))}",
-                f"Freeze Epochs: {self._safe(getattr(arc, 'freeze_encoder_epochs', None))}",
-            ])
+            parts = [
+                f"Backbone {self._safe(getattr(arc, 'backbone', None))}",
+                f"Pretrained {self._safe(getattr(arc, 'pretrained', None))}",
+                f"Freeze Epochs {self._safe(getattr(arc, 'freeze_encoder_epochs', None))}",
+            ]
+        else:
+            parts = []
 
-        return "  |  ".join(parts)
+        return "  |  ".join(parts) if parts else "-"
+
+    def _update_field(self, key, value):
+        field = self.info_fields.get(key)
+        if field:
+            field.update(str(self._safe(value)))
 
     # ------------------------------------------------------------
     # Load model dynamically (called from mainW)
     # ------------------------------------------------------------
     def load_model(self, cfg, window):
+        previous_model_name = getattr(self.cfg, "model_name", None)
+        new_model_name = getattr(cfg, "model_name", None)
+        if previous_model_name != new_model_name:
+            self.selected_predictive_dataset = None
+            self.selected_evaluation_dataset = None
+
         self.model_cfg = cfg
         self.cfg = cfg
         self.window = window
 
-        self.txt_name.update(f"Name: {cfg.model_name}  |  Stage: {cfg.stage}")
-        self.txt_arch.update(self._architecture_summary(cfg))
-
-        opt = cfg.optimizer
-        self.txt_optimizer.update(
-            f"Optimizer: {self._safe(opt.type)}  |  Weight Decay: {self._safe(opt.weight_decay)}  |  lr: {self._safe(opt.lr)}"
-        )
-
-        tr = cfg.training
-        self.txt_training.update(
-            f"Batch Size: {self._safe(tr.batch_size)}  |  Num Workers: {self._safe(tr.num_workers)}  |  "
-            f"Device: {cfg.device}  |  Epochs: {self._safe(tr.epochs)}  |  "
-            f"Early Stop Patience: {self._safe(tr.early_stopping_patience)}"
-        )
-
-        sch = cfg.scheduler
-        self.txt_scheduler.update(f"Scheduler: {self._safe(sch.type)}  |  Warmup Epochs: {self._safe(sch.warmup_epochs)}")
+        arc = getattr(cfg, "architecture", None)
+        opt = getattr(cfg, "optimizer", None)
+        tr = getattr(cfg, "training", None)
+        sch = getattr(cfg, "scheduler", None)
 
         derived_channels = self._training_dataset_channels(cfg)
-        if derived_channels:
-            self.txt_profile.update(
-                f"Derived Model Inputs: {len(derived_channels)} channels  |  {self._channels_text(derived_channels)}"
-            )
-        else:
-            self.txt_profile.update("Derived Model Inputs: choose a training dataset")
+        channel_count = len(derived_channels) if derived_channels else getattr(arc, "num_channels", None)
 
-        self.txt_dataset.update(f"Training Dataset: {self._safe(getattr(cfg, 'training_dataset', None))}")
-        self.txt_predictive.update(f"Predictive/Test Dataset: {self._safe(self.selected_predictive_dataset)}")
-        self.txt_evaluation.update(f"Evaluation/Discovery Dataset: {self._safe(self.selected_evaluation_dataset)}")
+        self._update_field(f"{self.key}_INFO_NAME", getattr(cfg, "model_name", None))
+        self._update_field(f"{self.key}_INFO_STAGE", getattr(cfg, "stage", None))
+        self._update_field(f"{self.key}_INFO_ARCH", getattr(arc, "type", None))
+        self._update_field(f"{self.key}_INFO_CHANNELS", f"{self._safe(channel_count)}")
+        self._update_field(f"{self.key}_INFO_TRAIN_DS", getattr(cfg, "training_dataset", None))
+        self._update_field(f"{self.key}_INFO_INPUTS", f"{self._safe(channel_count)} channels  |  {self._channels_text(derived_channels)}" if derived_channels else "choose a training dataset")
+        self._update_field(f"{self.key}_INFO_OPT", getattr(opt, "type", None))
+        self._update_field(f"{self.key}_INFO_LR", getattr(opt, "lr", None))
+        self._update_field(f"{self.key}_INFO_WEIGHT_DECAY", getattr(opt, "weight_decay", None))
+        self._update_field(
+            f"{self.key}_INFO_TRAINING",
+            f"Batch {self._safe(getattr(tr, 'batch_size', None))}  |  Workers {self._safe(getattr(tr, 'num_workers', None))}  |  "
+            f"Device {self._safe(getattr(cfg, 'device', None))}  |  Epochs {self._safe(getattr(tr, 'epochs', None))}  |  "
+            f"Patience {self._safe(getattr(tr, 'early_stopping_patience', None))}",
+        )
+        self._update_field(
+            f"{self.key}_INFO_SCHEDULER",
+            f"{self._safe(getattr(sch, 'type', None))}  |  Warmup {self._safe(getattr(sch, 'warmup_epochs', None))}",
+        )
+        self._update_field(f"{self.key}_INFO_ARCH_CFG", self._architecture_config_text(cfg))
+
+        self.txt_evaluation_dataset.update(f"Evaluation Dataset: {self._safe(self.selected_predictive_dataset)}")
+        self.txt_prediction_dataset.update(f"Prediction Dataset: {self._safe(self.selected_evaluation_dataset)}")
         self.txt_profile_status.update("Profile Check: -")
 
     # ------------------------------------------------------------
@@ -247,6 +409,8 @@ class ModelViewer(ViewerBase):
             self.select_evaluation_dataset(window)
         elif event == f"{self.key}_EVALUATE":
             self.start_evaluation(window)
+        elif event == f"{self.key}_TABGROUP":
+            handled = True
         else:
             handled = False
 
@@ -272,12 +436,14 @@ class ModelViewer(ViewerBase):
         if not self._require_model():
             return
 
+        # Internal role/mode is still predictive for backwards compatibility,
+        # but the UI now treats this as labelled model evaluation data.
         selector = ControlSelectDataset(self.dataset_manager, mode="predictive")
         selected_dataset = selector.show(window)
 
         if selected_dataset:
             self.selected_predictive_dataset = selected_dataset
-            self.txt_predictive.update(f"Predictive/Test Dataset: {selected_dataset}")
+            self.txt_evaluation_dataset.update(f"Evaluation Dataset: {selected_dataset}")
             compatibility = self.model_manager.check_dataset_compatibility(self.cfg.model_name, selected_dataset) if self.model_manager else None
             self.update_profile_status(compatibility)
 
@@ -285,12 +451,14 @@ class ModelViewer(ViewerBase):
         if not self._require_model():
             return
 
+        # Internal mode is still evaluation for backwards compatibility,
+        # but the UI now presents it as prediction/anomaly discovery.
         selector = ControlSelectDataset(self.dataset_manager, mode="evaluation")
         selected_dataset = selector.show(window)
 
         if selected_dataset:
             self.selected_evaluation_dataset = selected_dataset
-            self.txt_evaluation.update(f"Evaluation/Discovery Dataset: {selected_dataset}")
+            self.txt_prediction_dataset.update(f"Prediction Dataset: {selected_dataset}")
             compatibility = self.model_manager.check_dataset_compatibility(self.cfg.model_name, selected_dataset) if self.model_manager else None
             self.update_profile_status(compatibility)
 
@@ -434,10 +602,10 @@ class ModelViewer(ViewerBase):
             return
 
         if not self.selected_predictive_dataset:
-            sg.popup_error("Choose a predictive/ground-truth dataset before running model testing.")
+            sg.popup_error("Choose an evaluation/ground-truth dataset before running model evaluation.")
             return
 
-        print(f"[ModelViewer] Running predictive test for {self.cfg.model_name} on {self.selected_predictive_dataset}")
+        print(f"[ModelViewer] Running model evaluation for {self.cfg.model_name} on {self.selected_predictive_dataset}")
         window.write_event_value(
             "-TASK_RUN_PREDICTIVE_TEST-",
             {"model_name": self.cfg.model_name, "dataset_name": self.selected_predictive_dataset},
@@ -448,7 +616,7 @@ class ModelViewer(ViewerBase):
             return
 
         if not self.selected_predictive_dataset:
-            sg.popup_error("Choose a predictive/ground-truth dataset before calibrating the threshold.")
+            sg.popup_error("Choose an evaluation/ground-truth dataset before calibrating the threshold.")
             return
 
         print(f"[ModelViewer] Calibrating threshold for {self.cfg.model_name} on {self.selected_predictive_dataset}")
@@ -462,10 +630,10 @@ class ModelViewer(ViewerBase):
             return
 
         if not self.selected_evaluation_dataset:
-            sg.popup_error("Choose an evaluation/discovery dataset before finding anomalies.")
+            sg.popup_error("Choose a prediction/discovery dataset before finding anomalies.")
             return
 
-        print(f"[ModelViewer] Running evaluation/discovery for {self.cfg.model_name} on {self.selected_evaluation_dataset}")
+        print(f"[ModelViewer] Running prediction/discovery for {self.cfg.model_name} on {self.selected_evaluation_dataset}")
         window.write_event_value(
             "-TASK_RUN_EVALUATION-",
             {"model_name": self.cfg.model_name, "dataset_name": self.selected_evaluation_dataset},
@@ -486,27 +654,35 @@ class ModelViewer(ViewerBase):
             self.txt_profile_status.update(f"Profile Check: NOT compatible ({reason})")
 
     def apply_stage(self, stage):
-        self.views["info"].update(visible=True)
-        self.views["visuals"].update(visible=False)
-        self.views["dataset"].update(visible=False)
-        self.views["training"].update(visible=False)
-        self.views["prediction"].update(visible=False)
+        # One stable model page with a tab control. The stage controls which
+        # actions are visible inside each tab rather than swapping entire pages.
+        self.views["main"].update(visible=True)
+
+        # Reset all stage-specific sections.
+        self.training_select_dataset_col.update(visible=False)
+        self.training_train_col.update(visible=False)
+        self.training_visuals_col.update(visible=False)
+        self.evaluation_actions_col.update(visible=False)
+        self.prediction_actions_col.update(visible=False)
 
         if stage == "created":
-            self.views["dataset"].update(visible=True)
+            self.training_select_dataset_col.update(visible=True)
+
         elif stage == "training":
-            self.views["training"].update(visible=True)
-        elif stage == "trained":
-            self.views["visuals"].update(visible=True)
-            self.views["prediction"].update(visible=True)
+            self.training_select_dataset_col.update(visible=True)
+            self.training_train_col.update(visible=True)
+
+        elif stage in ("trained", "completed"):
+            self.training_visuals_col.update(visible=True)
+            self.evaluation_actions_col.update(visible=True)
+            self.prediction_actions_col.update(visible=True)
+
         elif stage == "searching":
-            self.views["visuals"].update(visible=True)
-        elif stage == "completed":
-            self.views["visuals"].update(visible=True)
-            self.views["training"].update(visible=True)
-            self.views["prediction"].update(visible=True)
+            self.training_visuals_col.update(visible=True)
+            self.prediction_actions_col.update(visible=True)
+
         else:
-            self.views["dataset"].update(visible=True)
+            self.training_select_dataset_col.update(visible=True)
 
         self.current_stage = stage
 

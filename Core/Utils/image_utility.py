@@ -364,9 +364,12 @@ class ImageUtility:
         if x.ndim != 3:
             raise RuntimeError(f"Expected sample tensor shape (C,H,W), got {tuple(x.shape)}")
 
+        # ------------------------------------------------------------------
         # Keep generated previews lightweight. The MAE is fully convolutional,
         # so a smaller preview tile is valid and much faster for UI-triggered
         # visualisations.
+        # ------------------------------------------------------------------
+        
         max_preview_size = 128
 
         if max(x.shape[1], x.shape[2]) > max_preview_size:
@@ -377,8 +380,11 @@ class ImageUtility:
                                                 align_corners=False,
             ).squeeze(0)
 
+        # ------------------------------------------------------------------
         # ModelConfig.build_model expects architecture.num_channels, but the
         # loaded config does not persist it. Infer it from the dataset sample.
+        # ------------------------------------------------------------------
+
         model_cfg.architecture.num_channels = int(x.shape[0])
 
         model = model_cfg.build_model()
@@ -511,8 +517,11 @@ class ImageUtility:
                                                   cv2.KMEANS_PP_CENTERS,
         )
 
+        # ------------------------------------------------------------------
         # Assign every feature to its nearest centre in chunks to avoid a large
         # temporary distance matrix on bigger rasters.
+        # ------------------------------------------------------------------
+
         out = np.empty(features.shape[0], dtype=np.int32)
         chunk = 8192
 

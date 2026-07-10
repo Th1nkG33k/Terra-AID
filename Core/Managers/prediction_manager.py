@@ -33,32 +33,34 @@ class PredictionManager:
                         "ground_truth.tif", "GroundTruth.tif", "GROUND_TRUTH.tif",
                         "labels.tif", "label.tif", "mask.tif", "GT.tif",
     ]
-
+    # --------------------------------------------------------
     # Prediction presets are intentionally conservative defaults rather than
     # hard-coded scientific conclusions. They give users repeatable starting
     # points for the precision/recall trade-off while still allowing every
     # value to be overridden in the model configuration.
+    # --------------------------------------------------------
+
     PREDICTION_PRESETS = {
         "sensitive": {
-            "threshold_metric": "fp_penalised_f1",
-            "false_positive_penalty": 0.10,
-            "max_false_positive_rate": 0.60,
-            "min_recall": 0.30,
-            "min_component_pixels": 0,
+                      "threshold_metric": "fp_penalised_f1",
+                      "false_positive_penalty": 0.10,
+                      "max_false_positive_rate": 0.60,
+                      "min_recall": 0.30,
+                      "min_component_pixels": 0,
         },
         "balanced": {
-            "threshold_metric": "fp_penalised_f1",
-            "false_positive_penalty": 0.20,
-            "max_false_positive_rate": 0.45,
-            "min_recall": 0.20,
-            "min_component_pixels": 0,
+                     "threshold_metric": "fp_penalised_f1",
+                     "false_positive_penalty": 0.20,
+                     "max_false_positive_rate": 0.45,
+                     "min_recall": 0.20,
+                     "min_component_pixels": 0,
         },
         "conservative": {
-            "threshold_metric": "fp_penalised_f1",
-            "false_positive_penalty": 0.35,
-            "max_false_positive_rate": 0.30,
-            "min_recall": 0.10,
-            "min_component_pixels": 25,
+                         "threshold_metric": "fp_penalised_f1",
+                         "false_positive_penalty": 0.35,
+                         "max_false_positive_rate": 0.30,
+                         "min_recall": 0.10,
+                         "min_component_pixels": 25,
         },
     }
 
@@ -285,16 +287,19 @@ class PredictionManager:
     # ---------------------------------------------------------
     # Threshold calibration
     # ---------------------------------------------------------
+
+    # --------------------------------------------------------
+    # Calibrate one global anomaly threshold using ground-truth masks.
+
+    # This is intentionally separate from predict_dataset().  predict_dataset()
+    # is useful for visual per-tile outputs; calibration asks a different
+    # question: "what single threshold works best across this labelled
+    # dataset?"  It therefore collects continuous anomaly scores first, then
+    # evaluates a sweep of global percentile thresholds against ground_truth.tif.
+    # --------------------------------------------------------
     def calibrate_threshold(self, model_cfg, dataset_cfg, save_dir=None, device=None,
                             percentiles=None, metric=None, worker=None):
-        """Calibrate one global anomaly threshold using ground-truth masks.
-
-        This is intentionally separate from predict_dataset().  predict_dataset()
-        is useful for visual per-tile outputs; calibration asks a different
-        question: "what single threshold works best across this labelled
-        dataset?"  It therefore collects continuous anomaly scores first, then
-        evaluates a sweep of global percentile thresholds against ground_truth.tif.
-        """
+        
 
         save_dir = Path(save_dir or (model_cfg.paths.outputs / dataset_cfg.dataset_name / "calibration"))
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -373,12 +378,12 @@ class PredictionManager:
             gt = self._read_mask(gt_path, score_raw.shape)
 
             labelled_tiles.append({
-                "tile_id": tile_name,
-                "score": score_raw,
-                "gt": gt,
-                "gt_path": str(gt_path),
-                "channel_action": channel_action,
-                "channel_delta": int(channel_delta),
+                                    "tile_id": tile_name,
+                                    "score": score_raw,
+                                    "gt": gt,
+                                    "gt_path": str(gt_path),
+                                    "channel_action": channel_action,
+                                    "channel_delta": int(channel_delta),
             })
             all_scores.append(score_raw.ravel())
 
@@ -518,16 +523,16 @@ class PredictionManager:
             "labelled_tile_count": len(labelled_tiles),
             "skipped_tiles": skipped_tiles,
             "score_distribution": {
-                "mean": float(np.nanmean(score_values)),
-                "std": float(np.nanstd(score_values)),
-                "min": float(np.nanmin(score_values)),
-                "max": float(np.nanmax(score_values)),
-                "p90": float(np.nanpercentile(score_values, 90)),
-                "p95": float(np.nanpercentile(score_values, 95)),
-                "p97": float(np.nanpercentile(score_values, 97)),
-                "p99": float(np.nanpercentile(score_values, 99)),
-                "p995": float(np.nanpercentile(score_values, 99.5)),
-                "p998": float(np.nanpercentile(score_values, 99.8)),
+                                    "mean": float(np.nanmean(score_values)),
+                                    "std": float(np.nanstd(score_values)),
+                                    "min": float(np.nanmin(score_values)),
+                                    "max": float(np.nanmax(score_values)),
+                                    "p90": float(np.nanpercentile(score_values, 90)),
+                                    "p95": float(np.nanpercentile(score_values, 95)),
+                                    "p97": float(np.nanpercentile(score_values, 97)),
+                                    "p99": float(np.nanpercentile(score_values, 99)),
+                                    "p995": float(np.nanpercentile(score_values, 99.5)),
+                                    "p998": float(np.nanpercentile(score_values, 99.8)),
             },
             "output_dir": str(save_dir),
         }
@@ -743,9 +748,12 @@ class PredictionManager:
         preset_name = preset_label.lower()
         preset = dict(self.PREDICTION_PRESETS.get(preset_name, self.PREDICTION_PRESETS["balanced"]))
 
+        # ----------------------------------------------------------------------------
         # Explicit user/model values override the preset. Empty/null-like values
         # are treated as missing so the chosen preset remains active. This prevents
         # old YAML values such as 'null' or 'None' from disabling the guardrails.
+        # ----------------------------------------------------------------------------
+
         for key, value in raw.items():
             if not self._is_missing_config_value(value):
                 preset[key] = value
@@ -1074,15 +1082,18 @@ class PredictionManager:
         
         return mask
 
-    def _mask_metrics(self, pred, gt):
-        """Compute binary mask metrics using Python numeric types.
 
-        Raster masks can contain hundreds of thousands or millions of pixels.
-        The MCC denominator multiplies several large count values; passing that
-        large Python integer through np.sqrt can produce an object-dtype ufunc
-        error on Windows/NumPy.  Force all counts to plain Python ints and use
-        math.sqrt on a float denominator.
-        """
+    # ----------------------------------------------------------------------------
+    # Compute binary mask metrics using Python numeric types.
+
+    # Raster masks can contain hundreds of thousands or millions of pixels.
+    # The MCC denominator multiplies several large count values; passing that
+    # large Python integer through np.sqrt can produce an object-dtype ufunc
+    # error on Windows/NumPy.  Force all counts to plain Python ints and use
+    # math.sqrt on a float denominator.
+    # ----------------------------------------------------------------------------
+    def _mask_metrics(self, pred, gt):
+       
 
         pred = np.asarray(pred).astype(bool)
         gt = np.asarray(gt).astype(bool)
@@ -1109,8 +1120,11 @@ class PredictionManager:
         })
         return metrics
 
+    # ----------------------------------------------------------------------------
+    # Return global/micro and macro metrics over all tiles with ground truth.
+    # ----------------------------------------------------------------------------
     def _aggregate_metrics(self, rows):
-        """Return global/micro and macro metrics over all tiles with ground truth."""
+        
         gt_rows = [r for r in rows if r.get("has_ground_truth")]
 
         result = {"tiles_with_ground_truth": len(gt_rows),
@@ -1152,9 +1166,11 @@ class PredictionManager:
 
         return result
 
+    # ----------------------------------------------------------------------------
+    # Compute metrics from TP/FP/FN/TN counts safely.
+    # ----------------------------------------------------------------------------
     def _metrics_from_counts(self, tp, fp, fn, tn):
-        """Compute metrics from TP/FP/FN/TN counts safely."""
-
+        
         tp = int(tp or 0)
         fp = int(fp or 0)
         fn = int(fn or 0)
@@ -1174,9 +1190,12 @@ class PredictionManager:
         accuracy = safe_div(tp + tn, total)
         balanced_accuracy = 0.5 * (recall + specificity)
 
+        # ----------------------------------------------------------------------------
         # Matthews correlation coefficient.  Do not use np.sqrt here: the
         # denominator can be a very large Python int, which NumPy may treat as
         # object and fail with: AttributeError: 'int' object has no attribute 'sqrt'.
+        # ----------------------------------------------------------------------------
+        
         mcc_product = float((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
         mcc_den = math.sqrt(mcc_product) if mcc_product > 0.0 else 0.0
         mcc = safe_div((tp * tn) - (fp * fn), mcc_den)

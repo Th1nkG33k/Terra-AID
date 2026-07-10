@@ -31,16 +31,15 @@ class PageCreateDatasetMap:
 
     # ------------------------------------------------------------
     # WINDOW / MAP LIFECYCLE
+    # Open the AOI selector as a popup and return the selected AOI.
+    # Returns:
+    #     dict | None: {
+    #         "center": {"lat": float, "lon": float},
+    #         "bbox": [west, south, east, north],
+    #     }    
     # ------------------------------------------------------------
     def open(self, parent_window=None, initial_values=None):
-        """Open the AOI selector as a popup and return the selected AOI.
 
-        Returns:
-            dict | None: {
-                "center": {"lat": float, "lon": float},
-                "bbox": [west, south, east, north],
-            }
-        """
         self._reset_state()
 
         layout = self.build()

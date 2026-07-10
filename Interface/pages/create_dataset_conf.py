@@ -16,6 +16,8 @@ from Interface.theme import (
 # These are the bands Terra-AId currently handles in the dataset
 # creation flow. The keys are the actual channel codes written to
 # configs, not display names.
+# ------------------------------------------------------------------
+
 BAND_LABELS = {
     "B1": "B1 Coastal Aerosol",
     "B2": "B2 Blue",
@@ -37,9 +39,12 @@ BAND_LABELS = {
     "BSI": "BSI",
 }
 
+# ------------------------------------------------------------------
 # The default stack is the one you have been standardising around for
 # Nile/ground-truth compatibility.
+# ------------------------------------------------------------------
 DEFAULT_BANDS = ["B2", "B3", "B4", "B8", "B11", "B12", "SCL", "NDVI", "BSI"]
+
 
 # Full selectable list. Keep this in the same order as app_config where possible.
 ALL_BANDS = [
@@ -146,13 +151,13 @@ class PageCreateDatasetConf:
                 [
                     RText("Dataset Role"),
                     sg.Combo(
-                        ["Training", "Predictive", "Evaluation"],
+                        ["Training", "Evaluation", "Prediction"],
                         default_value="Training",
                         key="-CDC_ROLE-",
                         readonly=True,
                         size=(14, 1),
                     ),
-                    RText("Training=train model | Predictive=test/calibrate | Evaluation=find anomalies",
+                    RText("Training=train model | Evaluation=test/calibrate | Prediction=find anomalies",
                           key="-CDC_ROLE_HELP-"),
                 ],
             ],
@@ -161,7 +166,7 @@ class PageCreateDatasetConf:
         # ============================================================
         # SOIL + DEM OPTIONS
         # ============================================================
-        # Left as radio buttons because these are yes/no mutually-exclusive choices.
+        # radio buttons because these are yes/no mutually-exclusive choices.
         soil_panel = RPanel(
             key="-CDC_SOIL_PANEL-",
             layout=[

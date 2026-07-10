@@ -11,6 +11,7 @@ from pathlib import Path
     # Only handles global application paths.
     # Dataset/model/search paths are resolved by their own configs.
 # ============================================================
+
 class PathManager:
 
     def __init__(self, config_path: str = "app_config.yaml"):
@@ -58,7 +59,7 @@ class PathManager:
         # Root where each dataset folder lives
         self.DATASETS_ROOT = self.DATASETS_DIR
 
-        # Optional: global visuals root (if you want shared visuals)
+        # global visuals root (if you want shared visuals)
         self.VISUALS_ROOT = self.PROJECT_ROOT / dirs.get("visuals", "Visuals")
 
         self.MODELS_ROOT = self.PROJECT_ROOT / dirs["models"]
