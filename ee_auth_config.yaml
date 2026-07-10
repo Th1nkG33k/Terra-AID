@@ -1,0 +1,17 @@
+earth_engine:
+  enabled: true                 # User can disable EE entirely
+  auth_method: "oauth"          # oauth | service_account | none
+
+  # Service account mode (optional)
+  service_account_email: MPHComputers@hotmail.com
+  service_account_keyfile: null
+
+  # Earth Engine project settings
+  project_id: "msc-artificial-intelligence"             # e.g. "my-ee-project"
+  export_folder: "TerraAIdExports"
+
+  # Tile generation defaults
+  default_scale: 10
+  default_crs: "EPSG:4326"
+  tile_width: 256
+  tile_height: 161

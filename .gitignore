@@ -1,0 +1,14 @@
+Data/Models
+Data/Datasets
+.venv
+.vscode
+Core/Managers/__pycache__
+Core/Processing/__pycache__
+Core/Pytorch/__pycache__
+Core/Tasks/__pycache__
+Core/Utils/__pycache__
+Interface/__pycache__
+Interface/controls/__pycache__
+Interface/pages/__pycache__
+Models/__pycache__
+XAI/__pycache__

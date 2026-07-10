@@ -1,0 +1,106 @@
+# dataset:
+#   name: "Nile"
+#   abbr: "nile"
+
+# project_root: self.PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+# directories:
+#   data_raw: "data_raw"
+#   data_processed: "data_processed"
+#   checkpoints: "checkpoints"
+#   logs: "logs"
+#   exports: "exports"
+#   assets: "assets"
+
+
+# bands:
+#   s2: ["B2", "B3", "B4", "B8", "B11", "B12", "SCL"]
+
+# bounding_boxes:
+#   tp:
+#     - [32.5, 26.0, 33.0, 26.5]
+#   s2:
+#     - [32.5, 26.0, 33.0, 26.5]
+
+# interface:
+#   brand_colours:
+#     - "primary='#1E88E5'"
+#     - "secondary='#1565C0'"
+#     - "accent='#42A5F5'"
+#     - "brand='#0D47A1'"
+#     - "positive='#4CAF50'"
+#     - "negative='#E53935'"
+#     - "info='#29B6F6'"
+#     - "warning='#FB8C00'"
+
+#   command_bar_items:
+#     - "Home"
+#     - "PreProcessing"
+#     - "Datasets"
+#     - "Models"
+#     - "Logs"
+#     - "Help"
+
+#   side_menu_items:
+#     - "Home=['#']"
+#     - "PreProcessing=['Handcraft', 'Auto Extract', 'Custom', 'Option 4']"
+#     - "Datasets=['Create New', 'Load Ds', 'View', 'Option 4']"
+#     - "Models=['MAE', 'GK', 'Option 3', 'Option 4']"
+#     - "Logs=['Repair', 'Training', 'Option 3', 'Option 4']"
+#     - "Help=['#']"
+# ============================================================
+# Terra-AId Global Application Configuration
+# ============================================================
+
+project_root: "."
+
+directories:
+  assets: "assets"
+  datasets: "Data/Datasets"
+  models: "Data/Models"
+  searches: "Data/Searches"
+  dataset_configs: "Data/Datasets/Configs"
+  model_configs: "Data/Models/Configs"
+  search_configs: "Data/Searches/Configs"
+
+device:
+  default: "cpu"
+
+bands:
+  all:
+    - B1
+    - B2
+    - B3
+    - B4
+    - B5
+    - B6
+    - B7
+    - B8
+    - B8A
+    - B9
+    - B10
+    - B11
+    - B12
+    - SCL
+    - VV
+    - VH
+    - NDVI
+    - BSI
+
+
+  # # Top-level project pillars
+  # datasets: "Data/Datasets"
+  # models: "Data/Models"
+  # searches: "Data/Searches"
+
+  # # Central registries (auto-managed)
+  # dataset_configs: "Data/Datasets/Configs"
+  # model_configs: "Data/Models/Configs"
+  # search_configs: "Data/Searches/Configs"
+
+
+# No dataset/model/search defaults here.
+# No raw/processed/checkpoints/logs here.
+# No bounding boxes or bands here.
+# No UI menus here.
