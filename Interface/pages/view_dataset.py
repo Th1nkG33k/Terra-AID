@@ -1,4 +1,3 @@
-
 import io
 import numpy as np
 import torch
@@ -16,15 +15,11 @@ from Core.Utils.image_utility import ImageUtility
 
 # ============================================================
 # VIEW DATASET
-#   
-# 
-#   
 # ============================================================
 class DatasetViewer(ViewerBase):
     key = "-PAGE_VIEWER_DATASET-"
 
     def __init__(self):
-        
         super().__init__(entity=None, title="Dataset Viewer")
 
         self.cfg = None
@@ -33,6 +28,14 @@ class DatasetViewer(ViewerBase):
         self.processing_panel = None
         self.band_col = None
         self.info_fields = {}
+
+        # Tab/status elements
+        self.txt_download_status = None
+        self.txt_download_details = None
+        self.txt_process_status = None
+        self.txt_visuals_status = None
+        self.process_actions_col = None
+        self.visuals_actions_col = None
 
         # PyTorch + visuals
         self.torch_dataset = None
@@ -74,33 +77,84 @@ class DatasetViewer(ViewerBase):
         if field:
             field.update("-" if value in (None, "") else str(value))
 
+    def _safe(self, value, default="-"):
+        return default if value in (None, "") else value
+
+    def _list_text(self, values):
+        values = list(values or [])
+        return ", ".join(map(str, values)) if values else "-"
+
+    def _display_stage(self, stage):
+        return str(stage or "unknown").replace("_", " ").title()
+
     def _display_role(self, role):
         role = str(role or "mixed").strip().lower()
-        mapping = {
-            "predictive": "evaluation",
-            "ground_truth": "evaluation",
-            "validation": "evaluation",
-            "evaluation": "prediction",
-            "discovery": "prediction",
-            "survey": "prediction",
+        mapping = {"training": "Training",
+                   "predictive": "Evaluation",
+                   "ground_truth": "Evaluation",
+                   "validation": "Evaluation",
+                   "evaluation": "Prediction",
+                   "discovery": "Prediction",
+                   "survey": "Prediction",
+                   "prediction": "Prediction",
+                   "mixed": "Mixed",
         }
-        return mapping.get(role, role)
+        return mapping.get(role, role.replace("_", " ").title())
+
+    def _set_text(self, element, value):
+        if element is not None:
+            element.update(str(self._safe(value)))
+
+    def _asset_path(self, filename):
+        if not filename:
+            return None
+        return Path(__file__).resolve().parents[2] / "assets" / filename
+
+    # ---------------------------------------------------------------------
+        
+        # Dataset visualisation button. If an image with the supplied filename is
+        # later added to /assets, it will be used automatically; otherwise a clean
+        # text button is shown. This mirrors the View Model page pattern without
+        # making the UI dependent on image assets being present now.
+        
+    # ---------------------------------------------------------------------
+    def _visual_button(self, text, key, image_filename=None, visible=True):
+
+        image_path = self._asset_path(image_filename)
+        common = {"key": key,
+                  "font": FONTS["body"],
+                  "button_color": (COLORS["text_primary"], COLORS["bg_panel"]),
+                  "mouseover_colors": (COLORS["text_primary"], COLORS["accent_teal"]),
+                  "border_width": 1,
+                  "pad": (8, 8),
+                  "visible": visible,
+        }
+
+        if image_path and image_path.exists():
+            return sg.Button(
+                "",
+                image_filename=str(image_path),
+                image_size=(165, 95),
+                **common,
+            )
+
+        return sg.Button(text, size=(18, 3), **common)
 
     # ------------------------------------------------------------
     # BUILD PAGE
     # ------------------------------------------------------------
     def build_views(self):
-        
         # ------------------------------------------------------------
-        # Information
+        # Professional two-column information header
         # ------------------------------------------------------------
         left_info = sg.Column(
             [
                 self._info_row("Name", f"{self.key}_INFO_NAME"),
                 self._info_row("Stage", f"{self.key}_INFO_STAGE"),
                 self._info_row("Role", f"{self.key}_INFO_ROLE"),
-                self._info_row("AOI", f"{self.key}_INFO_AOI", width=50),
-                self._info_row("Tiles", f"{self.key}_INFO_TILES"),
+                self._info_row("AOI", f"{self.key}_INFO_AOI", width=52),
+                self._info_row("Date Range", f"{self.key}_INFO_DATE_RANGE"),
+                self._info_row("CRS", f"{self.key}_INFO_CRS"),
             ],
             background_color=COLORS["bg_dark"],
             pad=((0, 25), (0, 0)),
@@ -109,6 +163,7 @@ class DatasetViewer(ViewerBase):
 
         right_info = sg.Column(
             [
+                self._info_row("Tiles", f"{self.key}_INFO_TILES"),
                 self._info_row("Structure", f"{self.key}_INFO_STRUCTURE"),
                 self._info_row("Tile Size", f"{self.key}_INFO_TILE_SIZE"),
                 self._info_row("Model Inputs", f"{self.key}_INFO_INPUTS", width=55),
@@ -121,112 +176,155 @@ class DatasetViewer(ViewerBase):
         )
 
         info_layout = [
-            [RHText("Dataset Information")],
+            [RHText("Information")],
             [left_info, sg.VSeparator(color=COLORS["line_bright"]), right_info],
         ]
 
-        view_info = sg.Column(info_layout,
-                              key=f"{self.key}_INFO",
+        # ------------------------------------------------------------
+        # Download tab
+        # ------------------------------------------------------------
+        self.txt_download_status = RText("Download Status: -")
+        self.txt_download_details = RText("-", color=COLORS["text_secondary"])
+
+        download_tab_layout = [
+            [RText("Download")],
+            [RText("Raw source data and AOI setup for this dataset.", color=COLORS["text_secondary"])],
+            [self.txt_download_status],
+            [self.txt_download_details],
+        ]
+
+        # ------------------------------------------------------------
+        # Process tab
+        # ------------------------------------------------------------
+        self.txt_process_status = RText("Processing Status: -")
+        self.btn_process = RButton("Process Dataset", key=f"{self.key}_PROCESS", w=0.20, visible=False)
+        self.btn_umap_raw = self._visual_button("UMAP (Raw)", key=f"{self.key}_UMAP_RAW", image_filename="dataset_umap_raw.png", visible=False)
+        self.btn_corr = self._visual_button("Correlation Heatmap", key=f"{self.key}_CORR", image_filename="dataset_correlation_heatmap.png", visible=False)
+        self.btn_hist = self._visual_button("Band Histograms", key=f"{self.key}_HIST", image_filename="dataset_band_histograms.png", visible=False)
+        
+        self.process_actions_col = sg.Column(
+            [
+                [RText("Process")],
+                [RText("Convert the downloaded raw data into model-ready tiles and channel metadata.", color=COLORS["text_secondary"])],
+                [self.txt_process_status],
+                [self.btn_process],
+                [
+                    self.btn_umap_raw,
+                    self.btn_corr,
+                    self.btn_hist,
+                ],
+            ],
+            key=f"{self.key}_PROCESS_ACTIONS_PANEL",
+            background_color=COLORS["bg_dark"],
+            visible=True,
+            pad=(0, 10),
+        )
+
+        process_tab_layout = [[self.process_actions_col]]
+
+        # ------------------------------------------------------------
+        # Visuals tab
+        # ------------------------------------------------------------
+        self.txt_visuals_status = RText("Visual Status: -")
+        self.btn_generate_stats = RButton("Generate Statistics", key=f"{self.key}_GEN_STATS", w=0.22, visible=False)
+        self.btn_rgb = self._visual_button("RGB - Stitched", key=f"{self.key}_VIS_GLOBAL_RGB", image_filename="dataset_global_rgb.png", visible=False)
+        self.tile_selector = sg.Combo([], key=f"{self.key}_TILE_SELECT", readonly=True, size=(18, 1), visible=False)
+        self.tile_label = RText("Tile:", key=f"{self.key}_TILE_LABEL", visible=False)
+        self.btn_tile_rgb = self._visual_button("Tile RGB", key=f"{self.key}_VIS_TILE_RGB", image_filename="dataset_tile_rgb.png", visible=False)
+        self.btn_tile_overlay = self._visual_button("Tile Overlay", key=f"{self.key}_VIS_TILE_OVERLAY", image_filename="dataset_tile_overlay.png", visible=False)
+
+
+        self.visuals_actions_col = sg.Column(
+            [
+                [RText("Visuals")],
+                [RText("Review processed tiles and generated dataset statistics.", color=COLORS["text_secondary"])],
+                [self.txt_visuals_status],
+                [self.btn_generate_stats],
+                [
+                    self.tile_label,
+                    self.tile_selector,
+                ],
+                [
+                    self.btn_rgb,
+                    self.btn_tile_rgb,
+                    self.btn_tile_overlay,
+                ],
+            ],
+            key=f"{self.key}_VISUALS_ACTIONS_PANEL",
+            background_color=COLORS["bg_dark"],
+            visible=True,
+            pad=(0, 10),
+        )
+
+        visuals_tab_layout = [[self.visuals_actions_col]]
+
+        tabs = sg.TabGroup(
+            [[
+                sg.Tab("Download", download_tab_layout, key=f"{self.key}_TAB_DOWNLOAD", background_color=COLORS["bg_dark"]),
+                sg.Tab("Process", process_tab_layout, key=f"{self.key}_TAB_PROCESS", background_color=COLORS["bg_dark"]),
+                sg.Tab("Visuals", visuals_tab_layout, key=f"{self.key}_TAB_VISUALS", background_color=COLORS["bg_dark"]),
+            ]],
+            key=f"{self.key}_TABGROUP",
+            enable_events=True,
+            background_color=COLORS["bg_dark"],
+            tab_background_color=COLORS["bg_panel"],
+            selected_background_color=COLORS["accent_teal"],
+            selected_title_color=COLORS["text_primary"],
+            title_color=COLORS["text_primary"],
+            border_width=0,
+            expand_x=True,
+            expand_y=True,
+            pad=((0, 0), (18, 0)),
+        )
+
+        main_layout = [*info_layout,
+                       [tabs],
+        ]
+
+        main_view = sg.Column(main_layout,
+                              key=f"{self.key}_MAIN",
                               visible=False,
                               background_color=COLORS["bg_dark"],
+                              expand_x=True,
+                              expand_y=True,
+                              pad=(0, 0),
         )
-        self.add_view("info", view_info)
-
-        # ------------------------------------------------------------
-        # Visualisations
-        # ------------------------------------------------------------
-        self.btn_generate_stats = RButton("Generate Statistics", key=f"{self.key}_GEN_STATS")
-        self.btn_rgb = RButton("RGB - Stitched", key=f"{self.key}_VIS_GLOBAL_RGB", visible=False)
-        self.tile_selector = sg.Combo([], key=f"{self.key}_TILE_SELECT", readonly=True, size=(18, 1), visible=False)
-        self.btn_tile_rgb = RButton("Tile RGB", key=f"{self.key}_VIS_TILE_RGB", visible=False)
-        self.btn_tile_overlay = RButton("Tile Overlay", key=f"{self.key}_VIS_TILE_OVERLAY", visible=False)
-        self.btn_umap_raw = RButton("UMAP (Raw)", key=f"{self.key}_UMAP_RAW", visible=False)
-        self.btn_corr = RButton("Correlation Heatmap", key=f"{self.key}_CORR", visible=False)
-        self.btn_hist = RButton("Band Histograms", key=f"{self.key}_HIST", visible=False)
-
-        vis_layout = [
-                        [RHText("Visualisations")],
-                        [
-                            self.btn_generate_stats,
-                            self.btn_umap_raw,
-                            self.btn_corr,
-                            self.btn_hist,
-                            self.btn_rgb,
-                        ],
-                        [
-                            RText("Tile:"),
-                            self.tile_selector,
-                            self.btn_tile_rgb,
-                            self.btn_tile_overlay,
-                        ],
-        ]
-
-        view_visuals = sg.Column(vis_layout,
-                                 key=f"{self.key}_VISUALS",
-                                 visible=False,
-                                 background_color=COLORS["bg_dark"],
-        )
-        self.add_view("visuals", view_visuals)
-
-
-        # ------------------------------------------------------------
-        # Processing
-        # ------------------------------------------------------------
-        process_layout = [
-                            [RHText("Processing")],
-                            [RButton("Process Dataset", key=f"{self.key}_PROCESS")],
-        ]
-
-        view_processing = sg.Column(process_layout,
-                                    key=f"{self.key}_PROCESSING",
-                                    visible=False,
-                                    background_color=COLORS["bg_dark"],
-        )
-        self.add_view("processing", view_processing)
-
+        self.add_view("main", main_view)
 
     # ------------------------------------------------------------
     # LOAD DATASET
     # ------------------------------------------------------------
     def load_dataset(self, cfg, window):
-        
         self.cfg = cfg
-        # ---------------------------------------------------------------------
-        # Update concise, user-facing dataset information.
-        # The old full band TRUE/FALSE list was useful during development,
-        # but it made the top of the page too noisy for normal use.
-        # ---------------------------------------------------------------------
 
-        def _safe(value, default="-"):
-            return default if value in (None, "") else value
-
-        def _list_text(values):
-            values = list(values or [])
-            return ", ".join(map(str, values)) if values else "-"
-
-        tile_width = _safe(getattr(getattr(cfg, "tile_structure", None), "width", None))
-        tile_height = _safe(getattr(getattr(cfg, "tile_structure", None), "height", None))
-        tile_format = _safe(getattr(getattr(cfg, "tile_structure", None), "tile_format", None))
+        tile_width = self._safe(getattr(getattr(cfg, "tile_structure", None), "width", None))
+        tile_height = self._safe(getattr(getattr(cfg, "tile_structure", None), "height", None))
+        tile_format = self._safe(getattr(getattr(cfg, "tile_structure", None), "tile_format", None))
 
         processing = getattr(cfg, "processing", None)
         normalisation = getattr(cfg, "normalisation", None)
+        date_range = getattr(cfg, "date_range", None)
+        crs = getattr(cfg, "crs", None)
+
         proc_parts = [
-            f"Resolution: {_safe(getattr(processing, 'resolution', None))}",
-            f"Normalisation: {_safe(getattr(normalisation, 'method', None))}",
-            f"DEM: {_safe(getattr(processing, 'include_dem', None))}",
-            f"Soil: {_safe(getattr(processing, 'include_soil', None))}",
-            f"Indices: {_safe(getattr(processing, 'include_indices', None))}",
+            f"Resolution {self._safe(getattr(processing, 'resolution', None))}",
+            f"Normalisation {self._safe(getattr(normalisation, 'method', None))}",
+            f"DEM {self._safe(getattr(processing, 'include_dem', None))}",
+            f"Soil {self._safe(getattr(processing, 'include_soil', None))}",
+            f"Indices {self._safe(getattr(processing, 'include_indices', None))}",
         ]
 
         self._update_info(f"{self.key}_INFO_NAME", cfg.dataset_name)
-        self._update_info(f"{self.key}_INFO_STAGE", _safe(cfg.stage))
-        self._update_info(f"{self.key}_INFO_ROLE", self._display_role(getattr(cfg, 'role', None)))
+        self._update_info(f"{self.key}_INFO_STAGE", self._display_stage(cfg.stage))
+        self._update_info(f"{self.key}_INFO_ROLE", self._display_role(getattr(cfg, "role", None)))
         self._update_info(f"{self.key}_INFO_AOI", f"Lat {cfg.min_lat}–{cfg.max_lat}  |  Lon {cfg.min_lon}–{cfg.max_lon}")
-        self._update_info(f"{self.key}_INFO_TILES", _safe(cfg.tile_count))
-        self._update_info(f"{self.key}_INFO_STRUCTURE", _safe(getattr(cfg, 'structure', None)))
+        self._update_info(f"{self.key}_INFO_DATE_RANGE", f"{self._safe(getattr(date_range, 'start', None))} to {self._safe(getattr(date_range, 'end', None))}")
+        self._update_info(f"{self.key}_INFO_CRS", f"EPSG:{self._safe(getattr(crs, 'epsg', None))}")
+        self._update_info(f"{self.key}_INFO_TILES", self._safe(cfg.tile_count))
+        self._update_info(f"{self.key}_INFO_STRUCTURE", self._safe(getattr(cfg, "structure", None)))
         self._update_info(f"{self.key}_INFO_TILE_SIZE", f"{tile_width} x {tile_height}  |  {tile_format}")
-        self._update_info(f"{self.key}_INFO_INPUTS", f"{_safe(getattr(cfg, 'num_input_channels', None))} channels  |  {_list_text(getattr(cfg, 'input_channels', []))}")
-        self._update_info(f"{self.key}_INFO_MASKS", _list_text(getattr(cfg, 'mask_channels', [])))
+        self._update_info(f"{self.key}_INFO_INPUTS", f"{self._safe(getattr(cfg, 'num_input_channels', None))} channels  |  {self._list_text(getattr(cfg, 'input_channels', []))}")
+        self._update_info(f"{self.key}_INFO_MASKS", self._list_text(getattr(cfg, "mask_channels", [])))
         self._update_info(f"{self.key}_INFO_PROCESSING", "  |  ".join(proc_parts))
 
         # Apply stage logic
@@ -243,59 +341,75 @@ class DatasetViewer(ViewerBase):
     # STAGE LOGIC
     # ------------------------------------------------------------
     def apply_stage(self, stage):
-
-        # Always show info
-        self.views["info"].update(visible=True)
-
-        # Default: hide everything else
-        self.views["visuals"].update(visible=False)
-        self.views["processing"].update(visible=False)
-
-        # ------------------------------------------------------------
-        # BUTTON VISIBILITY LOGIC (same as original)
-        # ------------------------------------------------------------
-        if stage == "statistics_generated":
-            self.btn_generate_stats.update(visible=False)
-            self.btn_umap_raw.update(visible=True)
-            self.btn_corr.update(visible=True)
-            self.btn_hist.update(visible=True)
-        else:
-            self.btn_generate_stats.update(visible=True)
-            self.btn_umap_raw.update(visible=False)
-            self.btn_corr.update(visible=False)
-            self.btn_hist.update(visible=False)
-
-        # ------------------------------------------------------------
-        # PANEL VISIBILITY LOGIC (converted to model-viewer style)
-        # ------------------------------------------------------------
-        if stage in ("processed", "ready", "statistics_generated"):
-
-            # ------------------------------------------------------------
-            # Do not show the full stitched RGB by default. It can be too large
-            # for PIL/Tkinter and is not needed for tile-level model work.
-            # ------------------------------------------------------------
-            
-            self.btn_rgb.update(visible=False)
-            self.tile_selector.update(visible=True)
-            self.btn_tile_rgb.update(visible=True)
-            self.btn_tile_overlay.update(visible=True)
-            self.views["visuals"].update(visible=True)
-
-        elif stage in ("raw", "downloaded", "processing"):
-            self.btn_rgb.update(visible=False)
-            self.tile_selector.update(visible=False)
-            self.btn_tile_rgb.update(visible=False)
-            self.btn_tile_overlay.update(visible=False)
-            self.views["processing"].update(visible=True)
-
-        # Save stage
+        # ---------------------------------------------------------------------
+        # One stable dataset page with a tab control. The stage controls which
+        # actions are visible inside each tab rather than swapping entire pages.
+        # ---------------------------------------------------------------------
+        self.views["main"].update(visible=True)
         self.current_stage = stage
 
+        stage_key = str(stage or "unknown").lower()
+        is_processed = stage_key in ("processed", "ready", "statistics_generated")
+        has_statistics = stage_key == "statistics_generated"
+        can_process = stage_key in ("raw", "downloaded", "processing", "unknown")
+
+        # ---------------------------------------------------------------------
+        # Download tab status. There is currently no separate download task wired
+        # from the viewer; dataset creation leaves the dataset at downloaded stage.
+        # ---------------------------------------------------------------------
+        if stage_key in ("raw", "downloaded"):
+            self._set_text(self.txt_download_status, "Download Status: raw source data available")
+            self._set_text(self.txt_download_details, "This dataset is ready to be processed into model-ready tiles.")
+        elif is_processed:
+            self._set_text(self.txt_download_status, "Download Status: complete")
+            self._set_text(self.txt_download_details, "Raw source data has already been processed for this dataset.")
+        elif stage_key == "processing":
+            self._set_text(self.txt_download_status, "Download Status: complete")
+            self._set_text(self.txt_download_details, "Dataset processing is currently running.")
+        else:
+            self._set_text(self.txt_download_status, "Download Status: unknown")
+            self._set_text(self.txt_download_details, "Open the dataset configuration if the raw data stage needs to be checked.")
+
+        # Process tab actions.
+        if can_process:
+            self._set_text(self.txt_process_status, "Processing Status: ready to process")
+        elif is_processed:
+            self._set_text(self.txt_process_status, "Processing Status: processed")
+        else:
+            self._set_text(self.txt_process_status, f"Processing Status: {self._display_stage(stage_key)}")
+
+        self.btn_process.update(visible=can_process)
+
+        # Visuals tab actions.
+        if is_processed:
+            self._set_text(self.txt_visuals_status, "Visual Status: processed tiles are available")
+        else:
+            self._set_text(self.txt_visuals_status, "Visual Status: process the dataset before creating visuals")
+
+        self.btn_generate_stats.update(visible=is_processed and not has_statistics)
+        self.btn_umap_raw.update(visible=has_statistics)
+        self.btn_corr.update(visible=has_statistics)
+        self.btn_hist.update(visible=has_statistics)
+
+        # ---------------------------------------------------------------------
+        # Do not show the full stitched RGB by default. It can be too large for
+        # PIL/Tkinter and is not needed for tile-level model work.
+        # ---------------------------------------------------------------------
+        self.btn_rgb.update(visible=False)
+
+        tile_controls_visible = is_processed
+        if hasattr(self, "tile_label"):
+            self.tile_label.update(visible=tile_controls_visible)
+        if hasattr(self, "tile_selector"):
+            self.tile_selector.update(visible=tile_controls_visible)
+        self.btn_tile_rgb.update(visible=tile_controls_visible)
+        self.btn_tile_overlay.update(visible=tile_controls_visible)
 
     # ------------------------------------------------------------
     # EVENT HANDLER
     # ------------------------------------------------------------
     def handle_event(self, event, values, window):
+        handled = True
 
         if event == f"{self.key}_PROCESS":
             window.write_event_value("-TASK_PROCESS_DATASET-", self.cfg.dataset_name)
@@ -314,7 +428,7 @@ class DatasetViewer(ViewerBase):
 
         elif event == f"{self.key}_CLUSTER":
             self._show_visual("cluster")
-        
+
         elif event == f"{self.key}_GEN_STATS":
             window.write_event_value("-TASK_GENERATE_STATISTICS-", self.cfg.dataset_name)
 
@@ -326,7 +440,7 @@ class DatasetViewer(ViewerBase):
 
         elif event == f"{self.key}_HIST":
             self._show_stat_image("band_histograms")
-        
+
         elif event == f"{self.key}_VIS_GLOBAL_RGB":
             rgb_path = self._visuals_dir() / f"{self.cfg.dataset_name}_RGB.png"
             self.img_util.show_image_window(rgb_path, title="Global RGB Mosaic")
@@ -337,12 +451,18 @@ class DatasetViewer(ViewerBase):
         elif event == f"{self.key}_VIS_TILE_OVERLAY":
             self._show_tile_overlay(values)
 
+        elif event == f"{self.key}_TABGROUP":
+            handled = True
+
+        else:
+            handled = False
+
+        return handled
 
     # ------------------------------------------------------------
     # LOAD PYTORCH DATASET
     # ------------------------------------------------------------
     def _load_pytorch_dataset(self, cfg):
-
         self.torch_dataset = MultimodalTileDataset(root_dir=cfg.processed_path,
                                                    bands=cfg.bands.included,
                                                    tile_size=cfg.cfg.get("tile_size", 256),
@@ -363,7 +483,6 @@ class DatasetViewer(ViewerBase):
     # VISUAL GENERATOR
     # ------------------------------------------------------------
     def _show_visual(self, mode: str):
-
         if self.sample_tensor is None:
             return
 
@@ -411,79 +530,62 @@ class DatasetViewer(ViewerBase):
 
         self.img_util.show_image_window(out_path, title=f"{mode.upper()} Preview")
 
-
     # ------------------------------------------------------------
     # TILE-LEVEL VISUALS
     # ------------------------------------------------------------
     def _processed_root(self) -> Path:
         return Path(self.pm.resolve_path(self.cfg.processed_path))
 
-
     def _tile_sort_key(self, path: Path):
-
         digits = "".join(ch for ch in path.name if ch.isdigit())
         return int(digits) if digits else path.name
 
-
     def _tile_dirs(self):
-
         root = self._processed_root()
         # Supports both historic "tile 0" and newer "tile_0" naming.
         dirs = [d for d in root.iterdir() if d.is_dir() and d.name.lower().startswith("tile")]
-        
         return sorted(dirs, key=self._tile_sort_key)
 
-
     def _refresh_tile_selector(self):
-
         try:
-        
             choices = [d.name for d in self._tile_dirs()]
             default = choices[0] if choices else ""
             self.tile_selector.update(values=choices, value=default)
-        
         except Exception as e:
             print(f"[Tile selector error] {e}")
 
-
     def _selected_tile_dir(self, values):
-
         choices = self._tile_dirs()
-        
+
         if not choices:
             raise FileNotFoundError("No tile folders found in processed dataset.")
 
         selected = values.get(f"{self.key}_TILE_SELECT") if values else None
-        
+
         if selected:
             selected_path = self._processed_root() / selected
-        
+
             if selected_path.exists():
                 return selected_path
 
         return choices[0]
 
-
     def _normalise_rgb(self, rgb: np.ndarray) -> np.ndarray:
-    
         rgb = rgb.astype(np.float32)
         out = np.zeros_like(rgb, dtype=np.float32)
-    
+
         for c in range(3):
-    
             band = rgb[:, :, c]
             lo, hi = np.nanpercentile(band, (2, 98))
-    
+
             if hi - lo > 1e-6:
                 out[:, :, c] = np.clip((band - lo) / (hi - lo), 0, 1)
-    
+
         return (out * 255).astype(np.uint8)
 
-
     def _read_tile_rgb(self, tile_dir: Path) -> np.ndarray:
-
         rgb_path = tile_dir / "RGB.tif"
-        
+
         if not rgb_path.exists():
             raise FileNotFoundError(f"RGB.tif not found in {tile_dir}")
 
@@ -491,7 +593,6 @@ class DatasetViewer(ViewerBase):
             rgb = src.read([1, 2, 3]).transpose(1, 2, 0)
 
         return self._normalise_rgb(rgb)
-
 
     def _find_overlay_mask(self, tile_dir: Path):
         # ------------------------------------------------------------
@@ -509,16 +610,14 @@ class DatasetViewer(ViewerBase):
         return None
 
     def _read_mask(self, mask_path: Path, target_shape) -> np.ndarray:
-
         with rasterio.open(mask_path) as src:
             mask = src.read(1)
-        
+
         mask = np.nan_to_num(mask, nan=0.0)
         mask = mask > 0
 
         # Resize if needed to match the RGB tile.
         if mask.shape != target_shape:
-
             mask_img = Image.fromarray(mask.astype(np.uint8) * 255)
             mask_img = mask_img.resize((target_shape[1], target_shape[0]), Image.NEAREST)
             mask = np.array(mask_img) > 0
@@ -526,31 +625,25 @@ class DatasetViewer(ViewerBase):
         return mask
 
     def _save_and_show_array(self, arr: np.ndarray, path: Path, title: str):
-    
         path.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(arr).save(path, format="PNG")
         self.img_util.show_image_window(path, title=title)
 
     def _show_tile_rgb(self, values):
-
         try:
-        
             tile_dir = self._selected_tile_dir(values)
             rgb = self._read_tile_rgb(tile_dir)
             out_path = self._visuals_dir() / f"{self.cfg.dataset_name}_{tile_dir.name}_RGB.png"
             self._save_and_show_array(rgb, out_path, title=f"Tile RGB - {tile_dir.name}")
-        
         except Exception as e:
             sg.popup_error(f"Failed to load tile RGB:\n{e}")
 
     def _show_tile_overlay(self, values):
-
         try:
-        
             tile_dir = self._selected_tile_dir(values)
             rgb = self._read_tile_rgb(tile_dir)
             mask_path = self._find_overlay_mask(tile_dir)
-        
+
             if mask_path is None:
                 raise FileNotFoundError(
                     "No overlay mask found. Expected one of: ground_truth.tif, labels.tif, mask.tif, GT.tif, or QC.tif"
@@ -566,19 +659,15 @@ class DatasetViewer(ViewerBase):
 
             out_path = self._visuals_dir() / f"{self.cfg.dataset_name}_{tile_dir.name}_overlay.png"
             self._save_and_show_array(overlay, out_path, title=f"Tile Overlay - {tile_dir.name} ({mask_path.name})")
-        
         except Exception as e:
             sg.popup_error(f"Failed to create tile overlay:\n{e}")
-
 
     # ------------------------------------------------------------
     #    Handles messages from worker threads during dataset processing.
     #    Mirrors the pattern used in PageLoadDataset.
     # ------------------------------------------------------------
     def on_worker_message(self, task_id, msg_type, data):
-
         match msg_type:
-
             case "status":
                 print(f"[STATUS] {data}")
 
@@ -586,58 +675,50 @@ class DatasetViewer(ViewerBase):
                 print(f"[PROGRESS] {data}%")
 
             case "result":
-                    
-                    match task_id:
-
-                        case "generate_statistics":
-                            # Update stage in memory
-                            self.cfg.stage = "statistics_generated"
-
-                            # Update UI visibility
-                            self.apply_stage("statistics_generated")
-
-                        case "process_dataset":
-                            print("[RESULT] Dataset processed successfully")
-
-            case "error":
-                print(f"[ERROR] {data}")
-
-            case "finished":
-
-                # -----------------------------------------
-                # NEW: Handle statistics completion
-                # -----------------------------------------
                 match task_id:
-
                     case "generate_statistics":
                         # Update stage in memory
                         self.cfg.stage = "statistics_generated"
 
                         # Update UI visibility
                         self.apply_stage("statistics_generated")
-                    
-                    case "process_dataset":
 
+                    case "process_dataset":
+                        print("[RESULT] Dataset processed successfully")
+
+            case "error":
+                print(f"[ERROR] {data}")
+
+            case "finished":
+                # -----------------------------------------
+                # NEW: Handle statistics completion
+                # -----------------------------------------
+                match task_id:
+                    case "generate_statistics":
+                        # Update stage in memory
+                        self.cfg.stage = "statistics_generated"
+
+                        # Update UI visibility
+                        self.apply_stage("statistics_generated")
+
+                    case "process_dataset":
                         # Update stage in memory
                         self.cfg.stage = "processed"
-                        
+
                         # Update UI visibility
                         self.apply_stage("processed")
 
                         print(f"[FINISHED] Task {task_id} complete")
 
-
     # ------------------------------------------------------------
     # Return the dataset visuals directory, tolerating older configs.
     # ------------------------------------------------------------
     def _visuals_dir(self) -> Path:
-        
         visuals_dir = getattr(self.cfg.paths, "visuals_dir", None)
         if visuals_dir:
             return Path(visuals_dir)
 
         return Path(self.cfg.paths.root) / "Visuals"
-
 
     def _show_stat_image(self, name: str):
         img_path = self._visuals_dir() / f"{self.cfg.dataset_name}_{name}.png"
