@@ -64,8 +64,6 @@ directories:
   model_configs: "Data/Models/Configs"
   search_configs: "Data/Searches/Configs"
 
-device:
-  default: "cpu"
 
 bands:
   all:

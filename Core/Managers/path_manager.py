@@ -74,21 +74,38 @@ class PathManager:
         # ------------------------------------------------------------
         # DEVICE (global, shared across entire application)
         # ------------------------------------------------------------
-        cfg_device = self.cfg.get("device", {}).get("default", "cuda")
+        # Device is deliberately runtime-detected.  It is not read from
+        # app_config.yaml, model YAML, or dataset YAML because config files
+        # should describe the work, not override the machine the app runs on.
+        self.DEVICE = self._detect_runtime_device()
+        self.IS_CUDA = self.DEVICE.type == "cuda"
+        self.IS_MPS = self.DEVICE.type == "mps"
 
-        if cfg_device == "cuda" and torch.cuda.is_available():
-
-            self.DEVICE = torch.device("cuda")
-            self.IS_CUDA = True
+        if self.IS_CUDA:
             self.GPU_NAME = torch.cuda.get_device_name(0)
             self.GPU_MEMORY = torch.cuda.get_device_properties(0).total_memory
-
+        elif self.IS_MPS:
+            self.GPU_NAME = "Apple MPS"
+            self.GPU_MEMORY = None
         else:
-
-            self.DEVICE = torch.device("cpu")
-            self.IS_CUDA = False
             self.GPU_NAME = "CPU"
             self.GPU_MEMORY = None
+
+        print(f"[Device] Terra-AID selected runtime device: {self.DEVICE} ({self.GPU_NAME})")
+
+
+    # ------------------------------------------------------------
+    # Runtime device detection
+    # ------------------------------------------------------------
+    def _detect_runtime_device(self):
+
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return torch.device("mps")
+
+        return torch.device("cpu")
 
     # ------------------------------------------------------------
     # Public path resolver

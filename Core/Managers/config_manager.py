@@ -36,8 +36,10 @@ def _clean_for_yaml(value):
     if isinstance(value, dict):
         cleaned = {}
         for k, v in value.items():
-            # These are now runtime-derived; never persist them.
+            # These are now runtime/system-derived; never persist them.
             if k in {"profile", "input_profile"}:
+                continue
+            if k == "device":
                 continue
             if k in {"num_channels", "channel_names"}:
                 continue
@@ -200,8 +202,10 @@ class ModelConfig(BaseConfig):
 
         m = self.cfg.get("model", {}) or {}
         self.model_name = m.get("name", name)
+        # Device is runtime-selected by the application startup.
+        # Model YAML may contain an old device value, but it is intentionally ignored.
         self.device = pm.DEVICE
-        self.yaml_device = m.get("device")
+        self.yaml_device = None
         self.stage = m.get("stage", "created")
 
         paths_cfg = self.cfg.get("paths", {}) or {}

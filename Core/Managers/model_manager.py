@@ -268,7 +268,6 @@ class ModelManager:
 
         return {"model": {"name": model_name,
                           "stage": "created",
-                          "device": "cuda" if values.get("-CMC_GPU-") else "cpu",
                 },
 
                 "architecture": architecture,

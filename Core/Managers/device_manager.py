@@ -4,7 +4,8 @@ import torch
 # ============================================================
 #    DEVICE MANAGER
 #
-#    Decides at start up which devices are available
+#    Decides at start up which devices are available.
+#    Config files do not override this decision.
 # ============================================================
 class DeviceManager:
 
@@ -15,15 +16,21 @@ class DeviceManager:
 
         if torch.cuda.is_available():
             return torch.device("cuda")
-        
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
-        
-        else:
-            return torch.device("cpu")
+
+        return torch.device("cpu")
 
     def get(self):
         return self.device
 
     def summary(self):
-        print(f"Using device: {self.device}")
+        if self.device.type == "cuda":
+            name = torch.cuda.get_device_name(0)
+        elif self.device.type == "mps":
+            name = "Apple MPS"
+        else:
+            name = "CPU"
+
+        print(f"Using device: {self.device} ({name})")

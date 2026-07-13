@@ -1,5 +1,5 @@
 import PySimpleGUI as sg
-from Interface.theme import (RPanel, RButton, RText, COLORS, RRadio, RInput, RHText)
+from Interface.theme import (RPanel, RButton, RText, COLORS, RInput, RHText)
 
 
 # ============================================================
@@ -35,18 +35,12 @@ class PageCreateModelConf:
 
 
         # ------------------------------------------------------------
-        # DEVICE SELECTION
+        # DEVICE
         # ------------------------------------------------------------
-        device_panel = RPanel(
-                                key="-CMC_DEVICE_PANEL-",
-                                layout=[
-                                    [
-                                        RText("Device"),
-                                        RRadio("GPU", "CMC_DEVICE", key="-CMC_GPU-"),
-                                        RRadio("CPU", "CMC_DEVICE", key="-CMC_CPU-", default=True),
-                                    ],
-                                ],
-        )
+        # Device is selected automatically at application start.
+        # It is deliberately not exposed here because configs should not
+        # override the system runtime device.
+
 
         # ------------------------------------------------------------
         # ARCHITECTURE SELECT
@@ -293,7 +287,7 @@ class PageCreateModelConf:
         # ------------------------------------------------------------
         layout = [
                     [title_panel],
-                    [model_name_panel,device_panel, sg.Push()],
+                    [model_name_panel, sg.Push()],
                     [arc_label_panel],
                     [sg.pin(mae_view)],
                     [sg.pin(cnn_view)],
