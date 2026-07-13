@@ -1,6 +1,10 @@
 
+import io
+from pathlib import Path
+
 import PySimpleGUI as sg
 import Interface.theme as theme
+from PIL import Image, UnidentifiedImageError
 
 from Core.Managers.app_context import AppContext
 from Core.Tasks.dataset_tasks import (load_dataset_task, process_dataset_task, generate_statistics_task)
@@ -22,10 +26,128 @@ from Interface.theme import (apply_terra_theme, COLORS, FONTS,
                              RBannerImage, RText, update_responsive_components,)
 
 
+
+# ------------------------------------------------------------
+#  STARTUP SPLASH SCREEN
+# ------------------------------------------------------------
+def _splash_image_bytes(image_path, max_width=620, max_height=350):
+
+    try:
+        with Image.open(image_path) as img:
+            img = img.convert("RGBA")
+            scale = min(max_width / img.width, max_height / img.height, 1.0)
+            width = max(1, int(img.width * scale))
+            height = max(1, int(img.height * scale))
+            img = img.resize((width, height), Image.LANCZOS)
+
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG")
+            return buffer.getvalue(), (width, height)
+
+    except (FileNotFoundError, UnidentifiedImageError, OSError):
+        return None, (max_width, max_height)
+
+
+def open_startup_splash():
+
+    splash_path = Path(__file__).resolve().parent / "assets" / "Terra-AID-Splash 1.png"
+    splash_data, splash_size = _splash_image_bytes(splash_path)
+
+    image_row = [sg.Image(data=splash_data, background_color=COLORS["bg_dark"])] if splash_data else [
+        sg.Text("Terra-AID",
+                font=("Segoe UI Semibold", 32),
+                text_color=COLORS["accent_cyan"],
+                background_color=COLORS["bg_dark"],
+        )
+    ]
+
+    layout = [
+        image_row,
+        [
+            sg.Text("Starting Terra-AID...",
+                    key="-SPLASH_STATUS-",
+                    font=FONTS["body"],
+                    text_color=COLORS["text_primary"],
+                    background_color=COLORS["bg_dark"],
+                    justification="center",
+                    expand_x=True,
+            )
+        ],
+    ]
+
+    splash = sg.Window("Terra-AID Starting",
+                       layout,
+                       no_titlebar=True,
+                       keep_on_top=True,
+                       grab_anywhere=True,
+                       finalize=True,
+                       alpha_channel=0.98,
+                       margins=(14, 14),
+                       background_color=COLORS["bg_dark"],
+                       element_justification="center",
+    )
+    splash.read(timeout=10)
+    return splash
+
+
+def update_startup_splash(splash, message):
+
+    if splash is None:
+        return
+
+    try:
+        splash["-SPLASH_STATUS-"].update(message)
+        splash.refresh()
+        splash.read(timeout=10)
+
+    except Exception:
+        pass
+
+
+def close_startup_splash(splash):
+
+    if splash is None:
+        return
+
+    try:
+        splash.close()
+
+    except Exception:
+        pass
+
+
+def show_main_window(window):
+
+    try:
+        window.un_hide()
+
+    except Exception:
+        try:
+            window.TKroot.deiconify()
+
+        except Exception:
+            pass
+
+    try:
+        window.bring_to_front()
+
+    except Exception:
+        pass
+
+    try:
+        window.refresh()
+
+    except Exception:
+        pass
+
+
 # ------------------------------------------------------------
 #  APPLICATION SETUP
 # ------------------------------------------------------------
 apply_terra_theme()
+
+splash_window = open_startup_splash()
+update_startup_splash(splash_window, "Initialising application context...")
 
 placeholder_layout = [
                         [
@@ -41,9 +163,10 @@ window = sg.Window("Terra-AId",
                    placeholder_layout,
                    resizable=True,
                    size=(1100, 600),
-                   enable_window_config_events=True,
+                  #enable_window_config_events=True,
                    background_color=COLORS["bg_dark"],
                    finalize=True,
+                   #visible=False,
 )
 
 app = AppContext()
@@ -80,6 +203,8 @@ def page_help(window):
     )
 
 
+update_startup_splash(splash_window, "Building page controllers...")
+
 # ------------------------------------------------------------
 #  PAGE INSTANCES
 # ------------------------------------------------------------
@@ -91,6 +216,8 @@ viewer_model = ModelViewer(dataset_manager=dataset_manager, model_manager=model_
 page_create_dataset_conf = PageCreateDatasetConf()
 page_create_model_conf = PageCreateModelConf()
 
+
+update_startup_splash(splash_window, "Registering application pages...")
 
 # ------------------------------------------------------------
 #  PAGE REGISTRATION
@@ -106,6 +233,8 @@ page_manager.register("-PAGE_VIEWER_DATASET-", viewer_dataset.build(), handler=v
 page_manager.register("-PAGE_VIEWER_MODEL-", viewer_model.build(), handler=viewer_model)
 
 
+update_startup_splash(splash_window, "Preparing navigation...")
+
 # ------------------------------------------------------------
 #  SIDEBAR
 # ------------------------------------------------------------
@@ -115,6 +244,8 @@ sidebar_manager.add("Models", "-PAGE_MODELS-")
 sidebar_manager.add("Logs", "-PAGE_LOGS-")
 sidebar_manager.add("Help", "-PAGE_HELP-")
 
+
+update_startup_splash(splash_window, "Building main interface...")
 
 # ------------------------------------------------------------
 #  LAYOUT
@@ -169,6 +300,10 @@ sidebar_manager.set_active("-PAGE_HOME-")
 
 theme.RESPONSIVE_READY = True
 update_responsive_components(window)
+show_main_window(window)
+update_startup_splash(splash_window, "Ready")
+close_startup_splash(splash_window)
+splash_window = None
 
 
 # ------------------------------------------------------------
