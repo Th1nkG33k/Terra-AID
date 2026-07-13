@@ -60,6 +60,9 @@ requests==2.32.3
 # -------------------------
 # Visual analytics / dimensionality reduction
 # -------------------------
+# umap-learn 0.5.x still expects the legacy pkg_resources module.
+# setuptools 82+ removes that module, so keep below 82 for compatibility.
+setuptools<82
 umap-learn==0.5.6
 
 # -------------------------

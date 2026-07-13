@@ -415,6 +415,25 @@ class MultimodalProcessor:
     # This keeps the config simple while making the processing stage responsible
     # for producing the raster mask required by prediction/evaluation.
     # ---------------------------------------------------------
+    def _raw_tile_folder_name(self, s2_path: Path) -> str:
+
+        s2_path = Path(s2_path)
+
+        # New raw layout:
+        #   Raw/S2/images/<tile>.tif
+        # In this layout there is no meaningful raw tile folder.  Use the
+        # dataset name as a stable source label instead of returning ``S2``.
+        if s2_path.parent.name.lower() == "images" and s2_path.parent.parent.name.lower() == "s2":
+            return str(getattr(self.cfg, "dataset_name", s2_path.stem))
+
+        # Legacy raw layout:
+        #   Raw/S2/Tile 1/images/<tile>.tif
+        if s2_path.parent.name.lower() == "images":
+            return s2_path.parent.parent.name
+
+        return s2_path.parent.name
+
+
     def _ground_truth_candidates(self, s2_path: Path, tile_dir: Path):
 
         labels = getattr(self.cfg, "labels", None)
@@ -425,8 +444,10 @@ class MultimodalProcessor:
         # ----------------------------------------------------------------------------
         # If a labels block exists, honour it.  If it does not exist, or if it
         # is the runtime default with type=None, fall back to the Terra-AID
-        # convention used by labelled validation datasets:
+        # convention used by labelled validation datasets.  Both raw layouts are
+        # supported:
         #   Raw/GroundTruth/<tile folder>/archaeology_selected.geojson
+        #   Raw/GroundTruth/archaeology_selected.geojson
         # ----------------------------------------------------------------------------
 
         source = getattr(labels, "source", None) if labels is not None else None
@@ -444,12 +465,12 @@ class MultimodalProcessor:
 
             candidates.append(src)
 
-        raw_tile_folder = s2_path.parent.parent.name
+        raw_tile_folder = self._raw_tile_folder_name(s2_path)
 
         # ----------------------------------------------------------------------------
         # Try to recover a useful tile index from the raw S2 filename, raw tile
-        # folder, or processed folder.  This covers both ``tile 0`` and
-        # ``tile_0_0`` style naming.
+        # folder, or processed folder.  This covers ``tile 0``, legacy
+        # ``tile_0_0`` names, and the new flat Raw/S2/images layout.
         # ----------------------------------------------------------------------------
 
         stem_tokens = s2_path.stem.replace("-", "_").replace(" ", "_").split("_")
@@ -479,6 +500,10 @@ class MultimodalProcessor:
                      "ground_truth.json",
                      "labels.geojson",
                      "label.geojson"]
+
+        # New flat layout: allow the label file to live directly in Raw/GroundTruth.
+        for filename in filenames:
+            candidates.append(source_root / filename)
 
         for token in dict.fromkeys(tile_tokens):
 
@@ -649,25 +674,26 @@ class MultimodalProcessor:
     # ---------------------------------------------------------
     # Core tile builder
     # ---------------------------------------------------------
-    def build_tile(self, s2_path: Path, tile_index=None):
+    def build_tile(self, s2_path: Path, tile_index: int | None = None):
         
         print(f"[BUILD TILE] s2_path: {s2_path}")
         s2_path = Path(s2_path)
 
         # ----------------------------------------------------------------------------
-        # Processed tile folders should be user-facing and sequential.
-        # Earlier versions included the raw source folder in the processed name
-        # to avoid overwrites when raw files were repeated across Tile folders,
-        # for example tile Tile_0_0.  The run() method now passes a global
-        # sequential index instead, so folders are simply:
-        #   tile 0, tile 1, tile 2, ...
+        # Processed dataset folders should be clean user-facing names only:
+        #   Dataset/tile 0
+        #   Dataset/tile 1
+        #   Dataset/tile 2
+        # The source/raw folder name is retained in metadata, but is no longer
+        # included in the processed folder name.
         # ----------------------------------------------------------------------------
         
         if tile_index is None:
-            tile_index = 0
+            numeric_tokens = [t for t in s2_path.stem.replace("-", "_").replace(" ", "_").split("_") if t.isdigit()]
+            tile_index = int(numeric_tokens[-1]) if numeric_tokens else 0
 
         tile_id = str(tile_index)
-        tile_dir = self.processed_root / f"tile {tile_id}"
+        tile_dir = self.processed_root / f"tile {tile_index}"
         tile_dir.mkdir(parents=True, exist_ok=True)
 
         # --- Load S2 stack ---
@@ -686,6 +712,9 @@ class MultimodalProcessor:
                     band_names = [f"band_{i}" for i in range(1, s2_src.count + 1)]
 
         meta = {"tile_id": tile_id,
+                "tile_name": f"tile {tile_index}",
+                "source_s2_path": str(s2_path),
+                "source_tile_folder": self._raw_tile_folder_name(s2_path),
                 "bands": band_names,
                 "height": profile["height"],
                 "width": profile["width"],
@@ -869,12 +898,9 @@ class MultimodalProcessor:
         return tile_dir
 
     # ---------------------------------------------------------
-    # Remove previously processed tile folders before rebuilding.
-    # This prevents old names such as "tile Tile_0_0" from remaining
-    # beside the new sequential folders when an existing dataset is
-    # processed again.
+    # Remove previous processed tile folders before rebuilding.
     # ---------------------------------------------------------
-    def _clear_processed_tile_folders(self):
+    def _clear_processed_tiles(self):
 
         self.processed_root.mkdir(parents=True, exist_ok=True)
 
@@ -884,32 +910,58 @@ class MultimodalProcessor:
 
 
     # ---------------------------------------------------------
+    # Discover raw S2 image files.
+    # Supports both raw layouts:
+    #   New:    Raw/S2/images/*.tif
+    #   Legacy: Raw/S2/Tile 1/images/*.tif
+    # ---------------------------------------------------------
+    def _discover_s2_files(self) -> list[Path]:
+
+        direct_images_dir = self.raw_s2_root / "images"
+        s2_files = []
+
+        if direct_images_dir.exists():
+            print(f"RUN - Image_Dir: {direct_images_dir}")
+            s2_files.extend(sorted(direct_images_dir.glob("*.tif")))
+            s2_files.extend(sorted(direct_images_dir.glob("*.tiff")))
+
+        legacy_tile_dirs = sorted(d for d in self.raw_s2_root.glob("Tile*") if d.is_dir())
+
+        for tdir in legacy_tile_dirs:
+            images_dir = tdir / "images"
+            print(f"RUN - Image_Dir: {images_dir}")
+
+            if images_dir.exists():
+                s2_files.extend(sorted(images_dir.glob("*.tif")))
+                s2_files.extend(sorted(images_dir.glob("*.tiff")))
+
+        # Return unique paths in a stable order.
+        return sorted(dict.fromkeys(s2_files))
+
+
+    # ---------------------------------------------------------
     # Run over all raw S2 tiles
     # ---------------------------------------------------------
     def run(self):
 
-        self._clear_processed_tile_folders()
+        s2_files = self._discover_s2_files()
 
-        tile_dirs = sorted(self.raw_s2_root.glob("Tile*"))
+        if not s2_files:
+            raise FileNotFoundError(
+                "No Sentinel-2 .tif image files found. Expected one of these layouts:\n"
+                f"  {self.raw_s2_root / 'images'}/*.tif\n"
+                f"  {self.raw_s2_root / 'Tile 1' / 'images'}/*.tif"
+            )
 
-        if not tile_dirs:
-            raise FileNotFoundError(f"No Tile* directories found in raw S2 directory: {self.raw_s2_root}")
+        self._clear_processed_tiles()
 
         built_tiles = 0
 
-        for tdir in tile_dirs:
+        for tile_index, s2_file in enumerate(s2_files):
 
-            images_dir = tdir / "images"
-            print(f"RUN - Image_Dir: {images_dir}")
-            
-            if not images_dir.exists():
-                continue
-
-            for s2_file in sorted(images_dir.glob("*.tif")):
-
-                print(f"Build Tile: {s2_file}")
-                self.build_tile(s2_file, tile_index=built_tiles)
-                built_tiles += 1
+            print(f"Build Tile {tile_index}: {s2_file}")
+            self.build_tile(s2_file, tile_index=tile_index)
+            built_tiles += 1
 
         if built_tiles == 0:
             raise FileNotFoundError(f"No .tif image tiles found below: {self.raw_s2_root}")

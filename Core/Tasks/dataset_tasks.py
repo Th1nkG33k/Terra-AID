@@ -61,7 +61,7 @@ def generate_statistics_task(dataset_name, dataset_manager, worker=None, **kwarg
     _progress(worker, 5, "Starting statistics generation")
     _progress(worker, 25, "Loading processed tiles")
 
-    dataset_manager.generate_statistics(dataset_name)
+    dataset_manager.generate_statistics(dataset_name, worker=worker)
 
     _progress(worker, 95, "Reloading statistics config")
     dataset_manager.reload()

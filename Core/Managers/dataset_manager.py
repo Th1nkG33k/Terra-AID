@@ -392,24 +392,29 @@ class DatasetManager:
     #   Runs the StatisticsProcessor on a processed dataset.
     #   Saves all imagery to Visuals/ and all JSON/NPY to dataset root.
     # ---------------------------------------------------------
-    def generate_statistics(self, dataset_name):
+    def generate_statistics(self, dataset_name, worker=None):
         """
         Runs the StatisticsProcessor on a processed dataset.
-        Saves all imagery to Visuals/ and all JSON/NPY to dataset root.
+        Saves visual/statistical outputs to the dataset Visuals folder.
         """
         from Core.Processing.statistics_processor import StatisticsProcessor
+
+        # Reload before running so recent project/config edits and stage changes
+        # are picked up without requiring an application restart.
+        self.reload()
 
         cfg = self.get(dataset_name)
         if cfg is None:
             raise KeyError(f"Dataset '{dataset_name}' not found in loaded configs")
 
-        # StatisticsProcessor only needs cfg
-        stats_proc = StatisticsProcessor(cfg)
+        stats_proc = StatisticsProcessor(cfg, worker=worker)
         stats_proc.run()
 
         cfg.stage = "statistics_generated"
         cfg.cfg.setdefault("dataset", {})["stage"] = "statistics_generated"
         cfg.save()
+        self._save_project_config_copy(cfg)
+        self.reload()
 
         print(f"[DatasetManager] Statistics generated for '{dataset_name}'.")
         return True
