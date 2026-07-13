@@ -6,6 +6,10 @@ from Interface.theme import (RPanel, RButtonSmall, RText, COLORS, RHText)
 from Core.Managers.path_manager import PathManager
 
 
+AOI_HALF_SIZE_DEGREES = 0.5
+AOI_ZOOM_LEVEL = 8
+
+
 # ============================================================
 # CREATE DATASET MAP
 #
@@ -154,10 +158,10 @@ class PageCreateDatasetMap:
         # widget.  Without this order the map can appear as a blank frame.
         # ------------------------------------------------------------
         self.map_widget.set_position(51.5074, -0.1278)
-        self.map_widget.set_zoom(10)
+        self.map_widget.set_zoom(AOI_ZOOM_LEVEL)
         self.map_widget.add_left_click_map_command(self._on_map_left_click)
         self.map_widget.max_zoom = 13
-        self.map_widget.min_zoom = 10 
+        self.map_widget.min_zoom = 5 
 
         self.map_widget.update_idletasks()
         window.refresh()
@@ -190,27 +194,99 @@ class PageCreateDatasetMap:
 
         """Called by TkinterMapView when the user clicks the map."""
         lat, lon = float(coords[0]), float(coords[1])
-        self.selected_lat = lat
-        self.selected_lon = lon
 
-        if self.marker is not None:
-            self.marker.delete()
+        self._apply_center_selection(
+            lat=lat,
+            lon=lon,
+            window=self.window,
+            update_coord_fields=True,
+            centre_map=False,
+        )
 
-        self.marker = self.map_widget.set_marker(lat, lon, text="AOI centre")
-        
         if self.window is not None:
             self.window.write_event_value("-MAP_POINT_SELECTED-", {"lat": lat, "lon": lon})
-        
-        bbox = self._bbox_from_center(lat=lat, lon=lon)
 
-
-    def _bbox_from_center(self, lat, lon, half_size=0.01):
-        """Return bbox as [west, south, east, north]."""
+    def _bbox_from_center(self, lat, lon, half_size=AOI_HALF_SIZE_DEGREES):
+        """Return a 1 degree square bbox as [west, south, east, north]."""
         west = lon - half_size
         south = lat - half_size
         east = lon + half_size
         north = lat + half_size
         return [west, south, east, north]
+
+    def _valid_lat_lon(self, lat, lon):
+        return -90 <= lat <= 90 and -180 <= lon <= 180
+
+    def _read_typed_lat_lon(self, values):
+        lat_raw = str(values.get("-CDM_LAT-", "")).strip()
+        lon_raw = str(values.get("-CDM_LON-", "")).strip()
+
+        if not lat_raw or not lon_raw:
+            return None
+
+        try:
+            lat = float(lat_raw)
+            lon = float(lon_raw)
+        except (TypeError, ValueError):
+            return None
+
+        if not self._valid_lat_lon(lat, lon):
+            return None
+
+        return lat, lon
+
+    def _apply_center_selection(
+        self,
+        lat,
+        lon,
+        window=None,
+        update_coord_fields=True,
+        centre_map=True,
+    ):
+        """Apply the same AOI selection behaviour for map clicks and typed coordinates."""
+        if self.map_widget is None:
+            return
+
+        if not self._valid_lat_lon(lat, lon):
+            raise ValueError("Latitude must be between -90 and 90 and longitude must be between -180 and 180.")
+
+        bbox = self._bbox_from_center(lat=lat, lon=lon)
+        self.selected_lat = lat
+        self.selected_lon = lon
+        self.selected_bbox = bbox
+
+        if self.marker is not None:
+            self.marker.delete()
+        self.marker = self.map_widget.set_marker(lat, lon, text="AOI centre")
+
+        self._draw_bbox(bbox)
+
+        if centre_map:
+            self.map_widget.set_position(lat, lon)
+            try:
+                self.map_widget.set_zoom(AOI_ZOOM_LEVEL)
+            except Exception:
+                pass
+
+        if window is not None:
+            self._update_fields(window, lat, lon, bbox, update_coord_fields=update_coord_fields)
+
+    def _handle_typed_coordinates(self, window, values):
+        coords = self._read_typed_lat_lon(values)
+        if coords is None:
+            return
+
+        lat, lon = coords
+        if self.selected_lat == lat and self.selected_lon == lon and self.selected_bbox is not None:
+            return
+
+        self._apply_center_selection(
+            lat=lat,
+            lon=lon,
+            window=window,
+            update_coord_fields=False,
+            centre_map=True,
+        )
 
     def _draw_bbox(self, bbox):
         if self.map_widget is None:
@@ -240,24 +316,27 @@ class PageCreateDatasetMap:
     # ------------------------------------------------------------
     def draw_aoi(self, window, values):
         
-        try:
-            lat = float(values.get("-CDM_LAT-") or self.selected_lat)
-            lon = float(values.get("-CDM_LON-") or self.selected_lon)
-        except (TypeError, ValueError):
+        coords = self._read_typed_lat_lon(values)
+
+        if coords is None and self.selected_lat is not None and self.selected_lon is not None:
+            coords = (self.selected_lat, self.selected_lon)
+
+        if coords is None:
             sg.popup_error("Click the map first, or enter valid latitude/longitude values.")
             return
 
-        bbox = self._bbox_from_center(lat, lon)
-        self.selected_lat = lat
-        self.selected_lon = lon
-        self.selected_bbox = bbox
+        lat, lon = coords
 
-        if self.marker is not None:
-            self.marker.delete()
-        self.marker = self.map_widget.set_marker(lat, lon, text="AOI centre")
-
-        self._draw_bbox(bbox)
-        self._update_fields(window, lat, lon, bbox)
+        try:
+            self._apply_center_selection(
+                lat=lat,
+                lon=lon,
+                window=window,
+                update_coord_fields=True,
+                centre_map=True,
+            )
+        except ValueError as exc:
+            sg.popup_error(str(exc))
 
     def clear_aoi(self, window):
         if self.marker is not None:
@@ -336,9 +415,11 @@ class PageCreateDatasetMap:
 
         return []
 
-    def _update_fields(self, window, lat, lon, bbox):
-        window["-CDM_LAT-"].update(f"{lat:.6f}")
-        window["-CDM_LON-"].update(f"{lon:.6f}")
+    def _update_fields(self, window, lat, lon, bbox, update_coord_fields=True):
+        if update_coord_fields:
+            window["-CDM_LAT-"].update(f"{lat:.6f}")
+            window["-CDM_LON-"].update(f"{lon:.6f}")
+
         window["-CDM_BBOX-"].update(json.dumps({
             "center": {"lat": lat, "lon": lon},
             "bbox": bbox,
@@ -369,11 +450,11 @@ class PageCreateDatasetMap:
     # ------------------------------------------------------------
     def handle_event(self, event, values, window):
         if event == "-MAP_POINT_SELECTED-":
-            payload = values[event]
-            lat = payload["lat"]
-            lon = payload["lon"]
-            window["-CDM_LAT-"].update(f"{lat:.6f}")
-            window["-CDM_LON-"].update(f"{lon:.6f}")
+            # The map callback has already applied the marker, bbox and fields.
+            return
+
+        elif event in ("-CDM_LAT-", "-CDM_LON-"):
+            self._handle_typed_coordinates(window, values)
 
         elif event == "-CDM_DRAW_AOI-":
             self.draw_aoi(window, values)
@@ -388,6 +469,7 @@ class PageCreateDatasetMap:
         coord_lat = sg.Input(
             key="-CDM_LAT-",
             size=(10, 1),
+            enable_events=True,
             justification="center",
             background_color=COLORS["bg_panel"],
             text_color=COLORS["text_primary"],
@@ -396,6 +478,7 @@ class PageCreateDatasetMap:
         coord_lon = sg.Input(
             key="-CDM_LON-",
             size=(10, 1),
+            enable_events=True,
             justification="center",
             background_color=COLORS["bg_panel"],
             text_color=COLORS["text_primary"],
@@ -444,7 +527,7 @@ class PageCreateDatasetMap:
             [sg.Input("", key="-CDM_BBOX-", visible=False)],
             [sg.HorizontalSeparator(color=COLORS["line_bright"])],
             [RText("1. Click the map or type a centre point.")],
-            [RText("2. Draw AOI to create the bounding box.")],
+            [RText("2. A 1 degree AOI is drawn around the centre point.")],
             [RText("3. Continue to copy it back to the dataset config.")],
             [sg.Push(), RButtonSmall("Continue", key="-CDM_CONTINUE-"), RButtonSmall("Cancel", key="-CDM_CANCEL-"), sg.Push()],
         ]
