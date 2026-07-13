@@ -1,5 +1,6 @@
 
 import json
+import shutil
 import numpy as np
 import rasterio
 
@@ -648,19 +649,24 @@ class MultimodalProcessor:
     # ---------------------------------------------------------
     # Core tile builder
     # ---------------------------------------------------------
-    def build_tile(self, s2_path: Path):
+    def build_tile(self, s2_path: Path, tile_index=None):
         
         print(f"[BUILD TILE] s2_path: {s2_path}")
         s2_path = Path(s2_path)
 
         # ----------------------------------------------------------------------------
-        # Include the source batch folder in the tile id. Nile has repeated
-        # nile_tile_0.tif ... nile_tile_10.tif inside each "Tile N/images"
-        # folder, so using only the file stem overwrites previous batches.
+        # Processed tile folders should be user-facing and sequential.
+        # Earlier versions included the raw source folder in the processed name
+        # to avoid overwrites when raw files were repeated across Tile folders,
+        # for example tile Tile_0_0.  The run() method now passes a global
+        # sequential index instead, so folders are simply:
+        #   tile 0, tile 1, tile 2, ...
         # ----------------------------------------------------------------------------
         
-        batch_id = s2_path.parent.parent.name.replace(" ", "_")
-        tile_id = f"{batch_id}_{s2_path.stem.split('_')[-1]}"
+        if tile_index is None:
+            tile_index = 0
+
+        tile_id = str(tile_index)
         tile_dir = self.processed_root / f"tile {tile_id}"
         tile_dir.mkdir(parents=True, exist_ok=True)
 
@@ -859,13 +865,30 @@ class MultimodalProcessor:
         with (tile_dir / "metadata.json").open("w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
 
-        print(f"[OK] Built tile_{tile_id}")
+        print(f"[OK] Built tile {tile_id}")
         return tile_dir
+
+    # ---------------------------------------------------------
+    # Remove previously processed tile folders before rebuilding.
+    # This prevents old names such as "tile Tile_0_0" from remaining
+    # beside the new sequential folders when an existing dataset is
+    # processed again.
+    # ---------------------------------------------------------
+    def _clear_processed_tile_folders(self):
+
+        self.processed_root.mkdir(parents=True, exist_ok=True)
+
+        for tile_dir in self.processed_root.glob("tile*"):
+            if tile_dir.is_dir():
+                shutil.rmtree(tile_dir)
+
 
     # ---------------------------------------------------------
     # Run over all raw S2 tiles
     # ---------------------------------------------------------
     def run(self):
+
+        self._clear_processed_tile_folders()
 
         tile_dirs = sorted(self.raw_s2_root.glob("Tile*"))
 
@@ -885,7 +908,7 @@ class MultimodalProcessor:
             for s2_file in sorted(images_dir.glob("*.tif")):
 
                 print(f"Build Tile: {s2_file}")
-                self.build_tile(s2_file)
+                self.build_tile(s2_file, tile_index=built_tiles)
                 built_tiles += 1
 
         if built_tiles == 0:
