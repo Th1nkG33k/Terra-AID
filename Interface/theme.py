@@ -696,50 +696,72 @@ def RImageButton(path, key, text="", size_ratio=0.15, pad=(10, 10)):
 # ============================================================
 # BANNER IMAGE
 # ============================================================
-def RBannerImage(path, key="-HEADER_BANNER-", w=1.00, h_ratio=0.08, min_h=55, max_h=105):
+def RBannerImage(path, key="-HEADER_BANNER-", w=1.00, h_ratio=0.08,
+                 min_h=55, max_h=105, min_w=420, max_w=860, horizontal_margin=24):
+    """Create a compact banner that resizes with the main form.
+
+    The complete source image is resampled into the available banner area on
+    every window-size change. This keeps the header compact, displays the whole
+    logo, and prevents Tk from showing a cropped section of the full-size file.
+    """
 
     resolved = _resolve_image_path(path)
+    render_cache = {}
+    last_size = [None, None]
 
-    img = sg.Image(key=key,
-                   background_color=COLORS["bg_dark"],
-                   expand_x=True,
-                   expand_y=False,
-                   visible=True,
-                   filename=resolved,
-                   size=(1000, 80),
-    )
+    def _target_size(win_w, win_h):
+        width = max(min_w, int(win_w * w) - horizontal_margin)
+        height = clamp(int(win_h * h_ratio), min_h, max_h)
+        return width, height
 
-    def _fit_banner_bytes(width, height):
-        source = load_themed_brand_image(resolved)
-        try:
-            fitted = ImageOps.contain(source, (int(width), int(height)), Image.LANCZOS)
-        finally:
-            source.close()
+    def _banner_bytes(width, height):
+        cache_key = (int(width), int(height))
+        cached = render_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
-        canvas = Image.new("RGBA", (int(width), int(height)), COLORS["bg_dark"])
-        x = (int(width) - fitted.width) // 2
-        y = (int(height) - fitted.height) // 2
-        canvas.alpha_composite(fitted, (x, y))
+        with load_themed_brand_image(resolved) as source:
+            source = source.convert("RGBA")
+            fitted = source.resize((int(width), int(height)), Image.LANCZOS)
 
         buffer = io.BytesIO()
-        canvas.save(buffer, format="PNG")
-        return buffer.getvalue()
+        fitted.save(buffer, format="PNG")
+        data = buffer.getvalue()
+
+        # Retain only the latest size so drag-resizing does not accumulate
+        # large PNG byte arrays in memory.
+        render_cache.clear()
+        render_cache[cache_key] = data
+        return data
+
+    # Start with a correctly scaled copy. Supplying the full-size filename to
+    # sg.Image caused the original 1536 x 220 artwork to be clipped into an
+    # 80-pixel-high widget before the first responsive update.
+    initial_width, initial_height = 1000, 80
+    initial_data = _banner_bytes(initial_width, initial_height)
+
+    img = sg.Image(
+        data=initial_data,
+        key=key,
+        background_color=COLORS["bg_dark"],
+        expand_x=True,
+        expand_y=False,
+        visible=True,
+        size=(initial_width, initial_height),
+        pad=(0, 0),
+    )
 
     def resize(win_w, win_h):
-
         try:
-            # ---------------------------------------------------------------------
-            # Fixed-height banner box. The image is fitted inside it without
-            # stretching, so the logo keeps its proportions on all window sizes.
-            # ---------------------------------------------------------------------
-            
-            width = vw(win_w, w, min_px=300, max_px=max(win_w - 20, 300))
-            height = clamp(int(win_h * h_ratio), min_h, max_h)
-            data = _fit_banner_bytes(width, height)
+            width, height = _target_size(win_w, win_h)
+            if (width, height) == tuple(last_size):
+                return
+
+            data = _banner_bytes(width, height)
             img.update(data=data, size=(width, height))
+            last_size[:] = [width, height]
 
         except Exception as e:
-
             if RESPONSIVE_DEBUG:
                 print(f"[RBannerImage resize error] key={key!r}: {e}")
 

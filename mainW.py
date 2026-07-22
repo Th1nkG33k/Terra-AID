@@ -164,7 +164,7 @@ window = sg.Window("Terra-AId",
                    placeholder_layout,
                    resizable=True,
                    size=(1100, 600),
-                  #enable_window_config_events=True,
+                  # Resize changes are detected by the main event-loop poll below.
                    background_color=COLORS["bg_dark"],
                    finalize=True,
                    #visible=False,
@@ -257,7 +257,12 @@ header_bar = [
         sg.Frame("",
                  [[RBannerImage(path_manager.banner("Terra-AID-Header_UI.png"),
                                 key="-BANNER_IMAGE-",
-                                w=1.00,
+                                w=0.72,
+                                h_ratio=0.06,
+                                min_h=42,
+                                max_h=72,
+                                min_w=340,
+                                max_w=860,
                  )]],
                  pad=(0, 0),
                  background_color=COLORS["bg_dark"],
@@ -831,9 +836,20 @@ def handle_worker_messages():
 # ------------------------------------------------------------
 #  EVENT LOOP
 # ------------------------------------------------------------
+last_main_window_size = tuple(window.size)
+window_config_event = getattr(sg, "WINDOW_CONFIG_EVENT", "__WINDOW CONFIG__")
+
 while True:
 
     event_window, event, values = sg.read_all_windows(timeout=50)
+
+    # Polling the actual size makes responsive behaviour reliable across
+    # PySimpleGUI versions, including versions that name configuration events
+    # differently. The 50 ms event-loop timeout keeps drag-resizing smooth.
+    current_main_window_size = tuple(window.size)
+    if current_main_window_size != last_main_window_size:
+        last_main_window_size = current_main_window_size
+        update_responsive_components(window)
 
     if event_window == window and event == sg.WIN_CLOSED:
         break
@@ -867,7 +883,7 @@ while True:
 
     handle_worker_messages()
 
-    if event == "-WINDOW-RESIZED-":
+    if event in {"-WINDOW-RESIZED-", window_config_event}:
         update_responsive_components(window)
 
 window.close()
