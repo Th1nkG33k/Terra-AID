@@ -7,7 +7,7 @@ import rasterio
 from pathlib import Path
 from PIL import Image
 from Interface.pages.view_base import ViewerBase
-from ..theme import RText, RButton, COLORS, RHText, FONTS
+from ..theme import RText, RButton, COLORS, RHText, FONTS, BUTTON_COLORS
 from Core.Managers.path_manager import PathManager
 from Core.Pytorch.pytorch_manager import MultimodalTileDataset
 from Core.Utils.image_utility import ImageUtility
@@ -123,8 +123,8 @@ class DatasetViewer(ViewerBase):
         image_path = self._asset_path(image_filename)
         common = {"key": key,
                   "font": FONTS["body"],
-                  "button_color": (COLORS["text_primary"], COLORS["bg_panel"]),
-                  "mouseover_colors": (COLORS["text_primary"], COLORS["accent_teal"]),
+                  "button_color": BUTTON_COLORS["secondary"],
+                  "mouseover_colors": BUTTON_COLORS["secondary_hover"],
                   "border_width": 1,
                   "pad": (8, 8),
                   "visible": visible,
@@ -268,8 +268,8 @@ class DatasetViewer(ViewerBase):
             enable_events=True,
             background_color=COLORS["bg_dark"],
             tab_background_color=COLORS["bg_panel"],
-            selected_background_color=COLORS["accent_teal"],
-            selected_title_color=COLORS["text_primary"],
+            selected_background_color=COLORS["accent_primary"],
+            selected_title_color=COLORS["text_on_accent"],
             title_color=COLORS["text_primary"],
             border_width=0,
             expand_x=True,

@@ -1,7 +1,7 @@
 import PySimpleGUI as sg
 
 from Interface.controls.control_select_base import ControlSelectBase
-from Interface.theme import RPanel, RText, COLORS, RButton
+from Interface.theme import RPanel, RText, COLORS, RButton, BUTTON_COLORS
 from Core.Managers.model_manager import ModelManager
 
 
@@ -140,11 +140,11 @@ class ControlSelectModel(ControlSelectBase):
                 for i in range(len(self.model_list)):
                     
                     win[f"{self.key}_ITEM_{i}"].update(
-                        button_color=(COLORS["accent_teal"], COLORS["bg_panel"])
+                        button_color=BUTTON_COLORS["selection_inactive"]
                     )
 
                 win[f"{self.key}_ITEM_{idx}"].update(
-                    button_color=(COLORS["accent_teal"], COLORS["bg_panel"])
+                    button_color=BUTTON_COLORS["selection"]
                 )
 
                 selected_value = self.get_selected_model()

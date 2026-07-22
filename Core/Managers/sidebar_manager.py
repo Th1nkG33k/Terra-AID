@@ -1,6 +1,6 @@
 
 import PySimpleGUI as sg
-from Interface.theme import RSideButton
+from Interface.theme import RSideButton, BUTTON_COLORS
 
 # ============================================================
 #  SIDEBAR MANAGER
@@ -47,7 +47,7 @@ class SidebarManager:
 
         for key, btn in self._map.items():
 
-            btn.update(button_color=("white", "#0D47A1"))
+            btn.update(button_color=BUTTON_COLORS["sidebar"])
             
             if key == self.active_page_key:
-                btn.update(button_color=("white", "#1E88E5"))
+                btn.update(button_color=BUTTON_COLORS["sidebar_active"])

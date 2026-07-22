@@ -1,6 +1,6 @@
 import PySimpleGUI as sg
 
-from Interface.theme import RText, RButton, COLORS, FONTS
+from Interface.theme import RText, RButton, COLORS, FONTS, BUTTON_COLORS
 from Core.Managers.model_manager import ModelManager
 
 
@@ -100,8 +100,8 @@ class PageModels:
             "font": FONTS["body"],
             "background_color": COLORS["bg_panel"],
             "text_color": COLORS["text_primary"],
-            "button_background_color": COLORS["accent_teal"],
-            "button_arrow_color": COLORS["text_primary"],
+            "button_background_color": COLORS["accent_primary"],
+            "button_arrow_color": COLORS["text_on_accent"],
             "readonly": True,
             "enable_events": True,
             "size": (24, 1),
@@ -141,8 +141,8 @@ class PageModels:
             "Select",
             key=self._model_item_key(idx),
             font=FONTS["body"],
-            button_color=(COLORS["text_primary"], COLORS["accent_teal"]),
-            mouseover_colors=(COLORS["text_primary"], COLORS["accent_cyan"]),
+            button_color=BUTTON_COLORS["primary"],
+            mouseover_colors=BUTTON_COLORS["primary_hover"],
             border_width=0,
             size=(8, 1),
             pad=(8, 8),
@@ -175,7 +175,7 @@ class PageModels:
 
         return sg.Column(
             [
-                [RText("Load Model", color=COLORS["accent_amber"], font=FONTS["header"], justification="center")],
+                [RText("Load Model", color=COLORS["accent_highlight"], font=FONTS["header"], justification="center")],
                 [list_col],
             ],
             background_color=COLORS["bg_dark"],

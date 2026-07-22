@@ -2,7 +2,7 @@ import json
 import PySimpleGUI as sg
 import tkintermapview
 
-from Interface.theme import (RPanel, RButtonSmall, RText, COLORS, RHText)
+from Interface.theme import (RPanel, RButtonSmall, RText, COLORS, RHText, MAP_COLORS)
 from Core.Managers.path_manager import PathManager
 
 
@@ -306,8 +306,8 @@ class PageCreateDatasetMap:
 
         self.aoi_polygon = self.map_widget.set_polygon(
             polygon_points,
-            outline_color="#4CC9F0",
-            fill_color="#4CC9F0",
+            outline_color=MAP_COLORS["aoi_outline"],
+            fill_color=MAP_COLORS["aoi_fill"],
             border_width=2,
         )
 

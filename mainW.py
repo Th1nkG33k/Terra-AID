@@ -23,7 +23,8 @@ from Interface.pages.models import PageModels
 from Interface.pages.view_dataset import DatasetViewer
 from Interface.pages.view_model import ModelViewer
 from Interface.theme import (apply_terra_theme, COLORS, FONTS,
-                             RBannerImage, RText, update_responsive_components,)
+                             RBannerImage, RText, update_responsive_components,
+                             load_themed_brand_image,)
 
 
 
@@ -33,7 +34,7 @@ from Interface.theme import (apply_terra_theme, COLORS, FONTS,
 def _splash_image_bytes(image_path, max_width=620, max_height=350):
 
     try:
-        with Image.open(image_path) as img:
+        with load_themed_brand_image(image_path) as img:
             img = img.convert("RGBA")
             scale = min(max_width / img.width, max_height / img.height, 1.0)
             width = max(1, int(img.width * scale))
@@ -56,7 +57,7 @@ def open_startup_splash():
     image_row = [sg.Image(data=splash_data, background_color=COLORS["bg_dark"])] if splash_data else [
         sg.Text("Terra-AID",
                 font=("Segoe UI Semibold", 32),
-                text_color=COLORS["accent_cyan"],
+                text_color=COLORS["accent_primary"],
                 background_color=COLORS["bg_dark"],
         )
     ]

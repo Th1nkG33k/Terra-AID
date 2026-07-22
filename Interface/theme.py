@@ -1,5 +1,7 @@
 import io
+import colorsys
 
+import numpy as np
 import PySimpleGUI as sg
 from pathlib import Path
 from PIL import Image, ImageOps
@@ -21,24 +23,69 @@ img_util = ImageUtility()
 # COLOUR PALETTE
 # ============================================================
 COLORS = {
-            "bg_dark": "#0F1115",
-            "bg_panel": "#16191F",
+            # Archaeological stratigraphy palette.
+            # Keep colour names role-based so the visual style can be changed
+            # centrally without editing individual pages or controls.
+            "bg_dark": "#1D1915",          # Deep peat - application background
+            "bg_panel": "#2A241E",         # Dark umber - inputs and panels
+            "bg_surface": "#352D25",       # Raised earth - cards and raised surfaces
 
-            "accent_cyan": "#4CC9F0",
-            "accent_teal": "#3A86FF",
-            "accent_amber": "#FFBE0B",
+            "accent_primary": "#B97C45",   # Clay - primary actions and selection
+            "accent_hover": "#C9945F",     # Sun-baked clay - hover and active states
+            "accent_secondary": "#788168", # Sage - secondary emphasis
+            "accent_highlight": "#D1AE69", # Sand - headings and separators
 
-            "line_dim": "#1E222A",
-            "line_bright": "#2A303A",
+            "line_dim": "#4A3E34",
+            "line_bright": "#665547",      # Stratigraphic boundary lines
 
-            "text_primary": "#E6E6E6",
-            "text_secondary": "#A8A8A8",
-            "text_muted": "#6F6F6F",
+            "text_primary": "#F2E9DC",     # Bone
+            "text_secondary": "#C9B9A5",   # Weathered stone
+            "text_muted": "#958572",       # Dust
+            "text_on_accent": "#1D1915",   # Accessible dark text on clay/sand
 
-            "success": "#80ED99",
-            "warning": "#FFD166",
-            "error": "#EF476F",
+            "success": "#8FA374",
+            "warning": "#D1AE69",
+            "error": "#B85D4C",
 }
+
+# Reusable component states. Pages should use these instead of embedding
+# colour tuples so all interaction states remain controlled by theme.py.
+BUTTON_COLORS = {
+            "primary": (COLORS["text_on_accent"], COLORS["accent_primary"]),
+            "primary_hover": (COLORS["text_on_accent"], COLORS["accent_hover"]),
+            "secondary": (COLORS["text_primary"], COLORS["bg_surface"]),
+            "secondary_hover": (COLORS["text_on_accent"], COLORS["accent_secondary"]),
+            "sidebar": (COLORS["text_secondary"], COLORS["bg_panel"]),
+            "sidebar_hover": (COLORS["text_on_accent"], COLORS["accent_hover"]),
+            "sidebar_active": (COLORS["text_on_accent"], COLORS["accent_primary"]),
+            "selection": (COLORS["text_on_accent"], COLORS["accent_primary"]),
+            "selection_inactive": (COLORS["text_primary"], COLORS["bg_surface"]),
+}
+
+MAP_COLORS = {
+            "aoi_outline": COLORS["accent_highlight"],
+            "aoi_fill": COLORS["accent_primary"],
+}
+
+# Existing brand artwork contains blue/cyan illumination. The artwork is
+# recoloured at runtime from the palette above, allowing the splash and header
+# to follow theme.py without maintaining separate raster assets.
+BRAND_IMAGE_STYLE = {
+            "recolour_cool_tones": True,
+            "cool_hue_min": 105,      # Pillow HSV scale: 0-255
+            "cool_hue_max": 190,
+            "minimum_saturation": 18,
+}
+
+_BRAND_IMAGE_CACHE = {}
+
+# Temporary compatibility aliases for any external extensions that still import
+# the former colour names. Terra-AID's own interface now uses semantic names.
+COLORS.update({
+            "accent_cyan": COLORS["accent_hover"],
+            "accent_teal": COLORS["accent_primary"],
+            "accent_amber": COLORS["accent_highlight"],
+})
 
 
 # ============================================================
@@ -72,13 +119,85 @@ def apply_terra_theme():
                                             "INPUT": COLORS["bg_panel"],
                                             "TEXT_INPUT": COLORS["text_primary"],
                                             "SCROLL": COLORS["line_bright"],
-                                            "BUTTON": (COLORS["text_primary"], COLORS["accent_teal"]),
-                                            "PROGRESS": COLORS["accent_cyan"],
+                                            "BUTTON": BUTTON_COLORS["primary"],
+                                            "PROGRESS": COLORS["accent_primary"],
                                             "BORDER": 1,
                                             "SLIDER_DEPTH": 0,
                                             "PROGRESS_DEPTH": 0,
     }
     sg.theme("TerraAId")
+
+
+# ============================================================
+# THEMED BRAND IMAGES
+# ============================================================
+def _hex_to_hsv255(hex_colour):
+    """Convert a #RRGGBB colour into Pillow's 0-255 HSV scale."""
+    value = hex_colour.lstrip("#")
+    r, g, b = (int(value[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    return int(h * 255), int(s * 255), int(v * 255)
+
+
+def load_themed_brand_image(path):
+    """Load a brand image and remap its blue/cyan tones to the active palette."""
+    resolved = str(_resolve_image_path(path))
+    try:
+        modified = Path(resolved).stat().st_mtime_ns
+    except OSError:
+        modified = 0
+
+    cache_key = (
+        resolved,
+        modified,
+        COLORS["accent_primary"],
+        COLORS["accent_highlight"],
+        tuple(sorted(BRAND_IMAGE_STYLE.items())),
+    )
+
+    cached = _BRAND_IMAGE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached.copy()
+
+    with Image.open(resolved) as source:
+        themed = source.convert("RGBA")
+
+    if BRAND_IMAGE_STYLE["recolour_cool_tones"]:
+        alpha = themed.getchannel("A")
+        hsv = np.array(themed.convert("RGB").convert("HSV"), dtype=np.uint8)
+
+        hue = hsv[:, :, 0].astype(np.int16)
+        saturation = hsv[:, :, 1].astype(np.int16)
+        value = hsv[:, :, 2].astype(np.int16)
+
+        mask = (
+            (hue >= BRAND_IMAGE_STYLE["cool_hue_min"])
+            & (hue <= BRAND_IMAGE_STYLE["cool_hue_max"])
+            & (saturation >= BRAND_IMAGE_STYLE["minimum_saturation"])
+        )
+
+        primary_h, primary_s, _ = _hex_to_hsv255(COLORS["accent_primary"])
+        highlight_h, highlight_s, _ = _hex_to_hsv255(COLORS["accent_highlight"])
+        brightness = value.astype(np.float32) / 255.0
+
+        target_hue = (
+            primary_h + ((highlight_h - primary_h) * brightness)
+        ).clip(0, 255).astype(np.uint8)
+        target_saturation = (
+            (primary_s * (1.0 - brightness * 0.35))
+            + (highlight_s * brightness * 0.35)
+        ).clip(0, 220).astype(np.uint8)
+
+        hsv[:, :, 0][mask] = target_hue[mask]
+        hsv[:, :, 1][mask] = target_saturation[mask]
+
+        themed = Image.fromarray(hsv, "HSV").convert("RGBA")
+        themed.putalpha(alpha)
+
+    # Keep a small cache; theme images are large and only the splash/header are used.
+    _BRAND_IMAGE_CACHE.clear()
+    _BRAND_IMAGE_CACHE[cache_key] = themed.copy()
+    return themed
 
 
 # ============================================================
@@ -286,7 +405,7 @@ def RClickPanel(key, layout, w=0.30, pad=SPACING["pad_small"], valign="top", scr
     col = sg.Column(layout,
                     key=key,
                     pad=pad,
-                    background_color=COLORS["bg_panel"],
+                    background_color=COLORS["bg_surface"],
                     expand_x=False,
                     expand_y=True,
                     vertical_alignment=valign,
@@ -317,7 +436,7 @@ def RDSPanel(key, layout, w=0.30, pad=SPACING["pad_small"], valign="top"):
     col = sg.Column(layout,
                     key=key,
                     pad=pad,
-                    background_color=COLORS["accent_amber"],
+                    background_color=COLORS["accent_secondary"],
                     expand_x=True,
                     expand_y=True,
                     vertical_alignment=valign,
@@ -337,8 +456,8 @@ def RButton(text, key, w=None, pad=(5, 5), visible=True):
     btn = sg.Button(text,
                     key=key,
                     pad=pad,
-                    button_color=(COLORS["text_primary"], COLORS["accent_teal"]),
-                    mouseover_colors=(COLORS["text_primary"], COLORS["accent_cyan"]),
+                    button_color=BUTTON_COLORS["primary"],
+                    mouseover_colors=BUTTON_COLORS["primary_hover"],
                     border_width=0,
                     font=FONTS["body"],
                     expand_x=True,
@@ -359,8 +478,8 @@ def RButtonSmall(text, key, w=None, pad=(8, 6), visible=True):
     btn = sg.Button(text,
                     key=key,
                     pad=pad,
-                    button_color=(COLORS["text_primary"], COLORS["accent_teal"]),
-                    mouseover_colors=(COLORS["text_primary"], COLORS["accent_cyan"]),
+                    button_color=BUTTON_COLORS["primary"],
+                    mouseover_colors=BUTTON_COLORS["primary_hover"],
                     border_width=0,
                     font=FONTS["body"],
                     expand_x=False,
@@ -383,8 +502,8 @@ def RSideButton(text, key, w=None, pad=(5, 5), visible=True):
     btn = sg.Button(text,
                     key=key,
                     pad=pad,
-                    button_color=(COLORS["text_primary"], COLORS["accent_teal"]),
-                    mouseover_colors=(COLORS["text_primary"], COLORS["accent_cyan"]),
+                    button_color=BUTTON_COLORS["sidebar"],
+                    mouseover_colors=BUTTON_COLORS["sidebar_hover"],
                     border_width=0,
                     font=FONTS["body"],
                     expand_x=False,
@@ -456,7 +575,7 @@ def RHText(text, key=None, w=None, visible=True, color=None, bg=None, font=None,
     t = sg.Text(text,
                 key=key,
                 font=font or FONTS["header"],
-                text_color=color or COLORS["accent_amber"],
+                text_color=color or COLORS["accent_highlight"],
                 background_color=bg or COLORS["bg_dark"],
                 visible=visible,
                 justification=justification,
@@ -537,7 +656,7 @@ def RImageButton(path, key, text="", size_ratio=0.15, pad=(10, 10)):
 
     btn = sg.Button(image_filename=resolved,
                     key=key,
-                    button_color=(COLORS["bg_panel"], COLORS["bg_panel"]),
+                    button_color=(COLORS["bg_surface"], COLORS["bg_surface"]),
                     border_width=0,
                     pad=(0, 5),
     )
@@ -591,13 +710,16 @@ def RBannerImage(path, key="-HEADER_BANNER-", w=1.00, h_ratio=0.08, min_h=55, ma
     )
 
     def _fit_banner_bytes(width, height):
-        with Image.open(resolved) as source:
-            source = source.convert("RGBA")
+        source = load_themed_brand_image(resolved)
+        try:
             fitted = ImageOps.contain(source, (int(width), int(height)), Image.LANCZOS)
-            canvas = Image.new("RGBA", (int(width), int(height)), COLORS["bg_dark"])
-            x = (int(width) - fitted.width) // 2
-            y = (int(height) - fitted.height) // 2
-            canvas.alpha_composite(fitted, (x, y))
+        finally:
+            source.close()
+
+        canvas = Image.new("RGBA", (int(width), int(height)), COLORS["bg_dark"])
+        x = (int(width) - fitted.width) // 2
+        y = (int(height) - fitted.height) // 2
+        canvas.alpha_composite(fitted, (x, y))
 
         buffer = io.BytesIO()
         canvas.save(buffer, format="PNG")
@@ -635,12 +757,12 @@ def RHeaderBar(key="-HEADER_BAR-", h=0.08):
                         [
                             sg.Text("Terra-AId",
                                     font=FONTS["header"],
-                                    text_color=COLORS["accent_cyan"],
+                                    text_color=COLORS["accent_primary"],
                                     background_color=COLORS["bg_panel"],
                                     pad=SPACING["pad_medium"],
                             )
                         ],
-                        [sg.HorizontalSeparator(color=COLORS["accent_amber"])],
+                        [sg.HorizontalSeparator(color=COLORS["accent_highlight"])],
                     ],
                     key=key,
                     background_color=COLORS["bg_panel"],
@@ -666,7 +788,7 @@ def RCalendarButton(text, target_key, key=None, w=None, format="%Y-%m-%d"):
                             target=target_key,
                             format=format,
                             font=FONTS["body"],
-                            button_color=(COLORS["text_primary"], COLORS["accent_teal"]),
+                            button_color=BUTTON_COLORS["primary"],
                             border_width=0,
                             pad=(5, 5),
     )

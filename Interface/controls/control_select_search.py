@@ -4,7 +4,7 @@ import PySimpleGUI as sg
 import inspect
 
 from Interface.controls.control_select_base import ControlSelectBase
-from ..theme import RPanel, RText, COLORS, FONTS, RButton, RDSPanel
+from ..theme import RPanel, RText, COLORS, FONTS, RButton, RDSPanel, BUTTON_COLORS
 from Core.Managers.dataset_manager import DatasetManager
 from Core.Managers.path_manager import PathManager
 
@@ -168,11 +168,11 @@ class ControlSelectSearch(ControlSelectBase):
                 # highlight
                 for i in range(len(self.dataset_list)):
                     win[f"{self.key}_ITEM_{i}"].update(
-                        button_color=(COLORS["accent_teal"], COLORS["bg_panel"])
+                        button_color=BUTTON_COLORS["selection_inactive"]
                     )
 
                 win[f"{self.key}_ITEM_{idx}"].update(
-                    button_color=(COLORS["accent_teal"], COLORS["bg_panel"])
+                    button_color=BUTTON_COLORS["selection"]
                 )
 
                 # CLOSE + RETURN
