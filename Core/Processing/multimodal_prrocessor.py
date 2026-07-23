@@ -17,10 +17,24 @@ from pathlib import Path
 #    NEW:
 #        - Automatic DEM/SOIL quality detection
 #        - Automatic RGB extraction per tile
-#        - RGB mosaic stitching into Visuals/
+#        - RGB mosaic stitching and six colour-shift previews in Visuals/
 #        - Manifest reporting
 # =================================================================
 class MultimodalProcessor:
+
+    # All six visible-band channel permutations.  Terra-AID stores each tile
+    # RGB raster in canonical red/green/blue order (B4, B3, B2), then derives
+    # these stitched display composites from the single geospatial mosaic.
+    # This avoids duplicating six large GeoTIFFs while still producing every
+    # user-facing colour-shift preview.
+    COLOUR_SHIFTS = {
+        "RGB": (0, 1, 2),
+        "RBG": (0, 2, 1),
+        "GRB": (1, 0, 2),
+        "GBR": (1, 2, 0),
+        "BRG": (2, 0, 1),
+        "BGR": (2, 1, 0),
+    }
 
     def __init__(self, cfg, path_manager, dem_processor, soil_processor, manifest_builder=None):
 
@@ -513,56 +527,79 @@ class MultimodalProcessor:
         return gt_out
 
     # ---------------------------------------------------------
-    # RGB stitching
+    # Normalise a three-channel mosaic independently per channel.
+    # Independent percentile stretching preserves the visual separation of
+    # each colour-shift composite and prevents a high-range band dominating
+    # all three display channels.
+    # ---------------------------------------------------------
+    def _normalise_composite_preview(self, composite: np.ndarray) -> np.ndarray:
+
+        composite = np.asarray(composite, dtype=np.float32)
+        preview = np.zeros_like(composite, dtype=np.uint8)
+
+        for channel_index in range(3):
+            band = composite[channel_index]
+            finite = np.isfinite(band)
+            valid = band[finite & (band != 0)]
+
+            if valid.size == 0:
+                continue
+
+            low, high = np.percentile(valid, (2, 98))
+            if high - low <= 1e-6:
+                continue
+
+            normalised = np.clip((np.where(finite, band, low) - low) / (high - low), 0, 1)
+            preview[channel_index] = (normalised * 255).astype(np.uint8)
+
+        return preview.transpose(1, 2, 0)
+
+
+    # ---------------------------------------------------------
+    # Stitch the canonical RGB tiles once, then create a PNG preview for every
+    # visible-band colour permutation.  The canonical RGB GeoTIFF remains the
+    # only duplicated geospatial raster; colour shifts are display products.
     # ---------------------------------------------------------
     def _stitch_rgb(self):
 
-        rgb_files = sorted(self.processed_root.rglob("RGB.tif"))
+        rgb_files = sorted(self.processed_root.glob("tile */RGB.tif"))
         if not rgb_files:
-            print("[WARN] No RGB tiles found — skipping RGB mosaic.")
-            return None, None
+            print("[WARN] No RGB tiles found — skipping colour-shift mosaics.")
+            return None, {}
 
-        srcs = [rasterio.open(f) for f in rgb_files]
-        mosaic, out_transform = merge(srcs)
+        srcs = [rasterio.open(path) for path in rgb_files]
 
-        # --- optional GeoTIFF (internal use only) ---
-        out_meta = srcs[0].meta.copy()
-        out_meta.update(
-            height=mosaic.shape[1],
-            width=mosaic.shape[2],
-            transform=out_transform,
-            count=3,
-            dtype="float32"
-        )
-        mosaic_path = self.visuals_root / f"{self.cfg.dataset_name}_RGB.tif"
-        with rasterio.open(mosaic_path, "w", **out_meta) as dst:
-            dst.write(mosaic)
+        try:
+            mosaic, out_transform = merge(srcs)
 
-        # --- proper percentile normalisation for PNG AOI ---
-        rgb = mosaic.transpose(1, 2, 0)
-        finite = np.isfinite(rgb)
-        rgb = np.where(finite, rgb, 0)
+            out_meta = srcs[0].meta.copy()
+            out_meta.update(
+                height=mosaic.shape[1],
+                width=mosaic.shape[2],
+                transform=out_transform,
+                count=3,
+                dtype="float32",
+            )
 
-        # Ignore zeros when computing percentiles
-        valid = rgb[rgb > 0]
-        if valid.size == 0:
-            vmin, vmax = 0, 1
-        else:
-            vmin = np.percentile(valid, 2)
-            vmax = np.percentile(valid, 98)
+            mosaic_path = self.visuals_root / f"{self.cfg.dataset_name}_RGB.tif"
+            with rasterio.open(mosaic_path, "w", **out_meta) as dst:
+                dst.write(mosaic.astype(np.float32, copy=False))
 
-        rgb_norm = np.clip((rgb - vmin) / (vmax - vmin + 1e-6), 0, 1)
-        rgb8 = (rgb_norm * 255).astype(np.uint8)
+            preview_paths = {}
+            for shift_name, band_order in self.COLOUR_SHIFTS.items():
+                shifted = mosaic[list(band_order)]
+                preview = self._normalise_composite_preview(shifted)
+                preview_path = self.visuals_root / f"{self.cfg.dataset_name}_{shift_name}.png"
+                Image.fromarray(preview, mode="RGB").save(preview_path)
+                preview_paths[shift_name] = preview_path
+                print(f"[OK] {shift_name} stitched preview saved → {preview_path}")
 
-        preview_path = self.visuals_root / f"{self.cfg.dataset_name}_RGB.png"
-        Image.fromarray(rgb8).save(preview_path)
+            print(f"[OK] Canonical RGB mosaic saved → {mosaic_path}")
+            return mosaic_path, preview_paths
 
-        for s in srcs:
-            s.close()
-
-        print(f"[OK] RGB mosaic saved → {mosaic_path}")
-        print(f"[OK] RGB PNG AOI saved → {preview_path}")
-        return mosaic_path, preview_path
+        finally:
+            for src in srcs:
+                src.close()
 
 
 
@@ -830,9 +867,8 @@ class MultimodalProcessor:
 
         if not s2_files:
             raise FileNotFoundError(
-                "No Sentinel-2 .tif image files found. Expected one of these layouts:\n"
-                f"  {self.raw_s2_root / 'images'}/*.tif\n"
-                f"  {self.raw_s2_root / 'Tile 1' / 'images'}/*.tif"
+                "No Sentinel-2 .tif image files found. Expected:\n"
+                f"  {self.raw_s2_root / 'images'}/*.tif"
             )
 
         self._clear_processed_tiles()
@@ -851,7 +887,7 @@ class MultimodalProcessor:
         # -----------------------------------------------------
         # RGB Mosaic stitching
         # -----------------------------------------------------
-        rgb_mosaic, rgb_preview = self._stitch_rgb()
+        rgb_mosaic, colour_shift_previews = self._stitch_rgb()
 
         # -----------------------------------------------------
         # Manifest reporting
@@ -859,7 +895,10 @@ class MultimodalProcessor:
         if self.manifest:
             self.manifest.add_entry({"dataset": self.cfg.dataset_name,
                                      "rgb_mosaic": str(rgb_mosaic) if rgb_mosaic else None,
-                                     "rgb_preview": str(rgb_preview) if rgb_preview else None,
+                                     "colour_shift_previews": {
+                                         name: str(path)
+                                         for name, path in colour_shift_previews.items()
+                                     },
                                      "dem_included": self.dem_valid,
                                      "dem_reason": self.dem_reason,
                                      "soil_included": self.soil_valid,

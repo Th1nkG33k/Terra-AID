@@ -9,6 +9,8 @@ import numpy as np
 import rasterio
 
 from pathlib import Path
+from PIL import Image
+from rasterio.merge import merge
 
 
 # ============================================================================
@@ -18,6 +20,7 @@ from pathlib import Path
 #   - band histograms
 #   - correlation matrix + heatmap
 #   - UMAP projection, with PCA fallback if umap-learn is unavailable
+#   - tile-level spectral clustering maps and one stitched clustering mosaic
 #
 # Terra-AID owns the processed dataset structure:
 #   Dataset/tile <index>/model_input.tif
@@ -41,6 +44,9 @@ class StatisticsProcessor:
         # Keep statistics lightweight enough for full AOI datasets.
         self.max_statistics_samples = int(getattr(cfg, "max_statistics_samples", 250_000))
         self.max_umap_samples = int(getattr(cfg, "max_umap_samples", 50_000))
+        self.cluster_count = int(getattr(cfg, "statistics_cluster_count", 6))
+        if not 2 <= self.cluster_count <= 20:
+            raise ValueError("statistics_cluster_count must be between 2 and 20.")
         self.rng = np.random.default_rng(42)
 
         print(f"[StatisticsProcessor] root={self.root}")
@@ -126,6 +132,7 @@ class StatisticsProcessor:
         self._compute_histograms(samples, labels)
         self._compute_correlation(samples, labels)
         self._compute_umap(samples, labels)
+        self._compute_clustering(samples, labels)
         self._write_summary(samples, labels, skipped)
 
         self._status("Statistics generation complete.")
@@ -175,12 +182,25 @@ class StatisticsProcessor:
 
             flat = arr.reshape(band_count, -1).T  # (pixels, bands)
             finite_mask = np.all(np.isfinite(flat), axis=1)
+
+            valid_mask_path = tile_dir / "valid_mask.tif"
+            if valid_mask_path.exists():
+                try:
+                    with rasterio.open(valid_mask_path) as mask_src:
+                        valid_mask = mask_src.read(1).reshape(-1) > 0
+                    if valid_mask.shape[0] == finite_mask.shape[0]:
+                        finite_mask &= valid_mask
+                except Exception as exc:
+                    skipped.append({
+                        "tile": tile_dir.name,
+                        "reason": f"valid_mask.tif could not be applied: {exc}",
+                    })
+
             valid_idx = np.flatnonzero(finite_mask)
 
             if valid_idx.size == 0:
-                # Fall back to finite replacement if a tile is mostly NaN/Inf.
-                flat = np.nan_to_num(flat, nan=0.0, posinf=0.0, neginf=0.0)
-                valid_idx = np.arange(flat.shape[0])
+                skipped.append({"tile": tile_dir.name, "reason": "no valid pixels after mask/QC filtering"})
+                continue
 
             sample_count = min(per_tile_limit, valid_idx.size)
             chosen = self.rng.choice(valid_idx, size=sample_count, replace=False)
@@ -353,6 +373,166 @@ class StatisticsProcessor:
         self.umap_sample_count = int(X_scaled.shape[0])
 
     # ------------------------------------------------------------------
+    # Return a stable RGB palette for cluster labels.  The labels are generated
+    # by one dataset-wide model, so a colour has the same meaning in every tile
+    # and in the final stitched mosaic.
+    # ------------------------------------------------------------------
+    def _cluster_palette(self, cluster_count: int) -> np.ndarray:
+        cmap = plt.get_cmap("tab20", cluster_count)
+        return (cmap(np.arange(cluster_count))[:, :3] * 255).astype(np.uint8)
+
+    # ------------------------------------------------------------------
+    def _labels_to_rgb(self, labels: np.ndarray, cluster_count: int, nodata_value: int = 255) -> np.ndarray:
+        palette = self._cluster_palette(cluster_count)
+        rgb = np.zeros((*labels.shape, 3), dtype=np.uint8)
+        valid = labels != nodata_value
+        rgb[valid] = palette[labels[valid].astype(np.int64)]
+        return rgb
+
+    # ------------------------------------------------------------------
+    def _save_cluster_png(self, labels: np.ndarray, output_path: Path, cluster_count: int):
+        rgb = self._labels_to_rgb(labels, cluster_count=cluster_count)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(rgb, mode="RGB").save(output_path)
+
+    # ------------------------------------------------------------------
+    # Fit one global MiniBatchKMeans model from the sampled dataset pixels, then
+    # predict each processed tile independently.  Tile-level prediction keeps
+    # memory usage bounded, while the shared model keeps cluster IDs consistent
+    # when the maps are stitched together.
+    # ------------------------------------------------------------------
+    def _compute_clustering(self, X: np.ndarray, labels: list[str]):
+        self._status(f"Generating tile clustering maps (k={self.cluster_count})...")
+
+        from sklearn.cluster import MiniBatchKMeans
+
+        if X.shape[0] < self.cluster_count:
+            raise RuntimeError(
+                f"Clustering requires at least {self.cluster_count} valid sampled pixels; found {X.shape[0]}."
+            )
+
+        mean = X.mean(axis=0, keepdims=True)
+        std = X.std(axis=0, keepdims=True)
+        std[std < 1e-8] = 1.0
+        X_scaled = (X - mean) / std
+
+        cluster_model = MiniBatchKMeans(
+            n_clusters=self.cluster_count,
+            random_state=42,
+            batch_size=min(8192, max(1024, X_scaled.shape[0])),
+            n_init=10,
+        )
+        cluster_model.fit(X_scaled)
+
+        tile_cluster_paths = []
+        tile_outputs = []
+        nodata_value = 255
+
+        for tile_number, tile_dir in enumerate(self.tile_dirs, start=1):
+            model_input_path = self._find_model_input(tile_dir)
+            if model_input_path is None:
+                continue
+
+            self._status(f"Clustering {tile_dir.name} ({tile_number}/{len(self.tile_dirs)})...")
+
+            with rasterio.open(model_input_path) as src:
+                arr = src.read().astype(np.float32)
+                profile = src.profile.copy()
+
+            if arr.ndim != 3 or arr.shape[0] != X.shape[1]:
+                raise RuntimeError(
+                    f"Cannot cluster {tile_dir.name}: expected {X.shape[1]} channels, found {arr.shape}."
+                )
+
+            band_count, height, width = arr.shape
+            flat = arr.reshape(band_count, -1).T
+            valid = np.all(np.isfinite(flat), axis=1)
+
+            valid_mask_path = tile_dir / "valid_mask.tif"
+            if valid_mask_path.exists():
+                with rasterio.open(valid_mask_path) as mask_src:
+                    valid_mask = mask_src.read(1).reshape(-1) > 0
+                if valid_mask.shape[0] == valid.shape[0]:
+                    valid &= valid_mask
+
+            label_flat = np.full(flat.shape[0], nodata_value, dtype=np.uint8)
+            valid_indices = np.flatnonzero(valid)
+
+            chunk_size = 65_536
+            for start in range(0, valid_indices.size, chunk_size):
+                index_chunk = valid_indices[start:start + chunk_size]
+                feature_chunk = (flat[index_chunk] - mean[0]) / std[0]
+                predicted = cluster_model.predict(feature_chunk).astype(np.uint8)
+                label_flat[index_chunk] = predicted
+
+            label_map = label_flat.reshape(height, width)
+            cluster_tif = tile_dir / "cluster_map.tif"
+            cluster_png = tile_dir / "cluster_map.png"
+
+            cluster_profile = profile.copy()
+            cluster_profile.update(count=1, dtype="uint8", nodata=nodata_value)
+            with rasterio.open(cluster_tif, "w", **cluster_profile) as dst:
+                dst.write(label_map, 1)
+                dst.set_band_description(1, f"Spectral cluster (k={self.cluster_count})")
+
+            self._save_cluster_png(label_map, cluster_png, self.cluster_count)
+            tile_cluster_paths.append(cluster_tif)
+            tile_outputs.append({
+                "tile": tile_dir.name,
+                "cluster_tif": str(cluster_tif),
+                "cluster_png": str(cluster_png),
+            })
+
+        if not tile_cluster_paths:
+            raise RuntimeError("No tile clustering maps were generated.")
+
+        sources = [rasterio.open(path) for path in tile_cluster_paths]
+        try:
+            stitched, transform = merge(sources, nodata=nodata_value, method="first")
+            stitched_labels = stitched[0].astype(np.uint8, copy=False)
+
+            stitched_tif = self.visuals_dir / f"{self.cfg.dataset_name}_clustering.tif"
+            stitched_png = self.visuals_dir / f"{self.cfg.dataset_name}_clustering.png"
+
+            stitched_profile = sources[0].profile.copy()
+            stitched_profile.update(
+                height=stitched_labels.shape[0],
+                width=stitched_labels.shape[1],
+                transform=transform,
+                count=1,
+                dtype="uint8",
+                nodata=nodata_value,
+            )
+            with rasterio.open(stitched_tif, "w", **stitched_profile) as dst:
+                dst.write(stitched_labels, 1)
+                dst.set_band_description(1, f"Spectral cluster (k={self.cluster_count})")
+
+            self._save_cluster_png(stitched_labels, stitched_png, self.cluster_count)
+
+        finally:
+            for source in sources:
+                source.close()
+
+        centres_unscaled = cluster_model.cluster_centers_ * std + mean
+        centres_json = self.visuals_dir / f"{self.cfg.dataset_name}_cluster_centres.json"
+        centres_json.write_text(
+            json.dumps({
+                "cluster_count": self.cluster_count,
+                "channels": labels,
+                "centres": centres_unscaled.tolist(),
+            }, indent=2),
+            encoding="utf-8",
+        )
+
+        self.clustering_outputs = {
+            "cluster_count": self.cluster_count,
+            "stitched_tif": stitched_tif.name,
+            "stitched_png": stitched_png.name,
+            "cluster_centres": centres_json.name,
+            "tiles": tile_outputs,
+        }
+
+    # ------------------------------------------------------------------
     def _write_summary(self, X: np.ndarray, labels: list[str], skipped: list[dict]):
         summary = {
             "dataset": self.cfg.dataset_name,
@@ -372,7 +552,11 @@ class StatisticsProcessor:
                 "correlation_heatmap": f"{self.cfg.dataset_name}_correlation_heatmap.png",
                 "umap_embedding": f"{self.cfg.dataset_name}_umap_raw_embedding.npy",
                 "umap_plot": f"{self.cfg.dataset_name}_umap_raw.png",
+                "clustering_tif": f"{self.cfg.dataset_name}_clustering.tif",
+                "clustering_plot": f"{self.cfg.dataset_name}_clustering.png",
+                "cluster_centres": f"{self.cfg.dataset_name}_cluster_centres.json",
             },
+            "clustering": getattr(self, "clustering_outputs", None),
         }
 
         out_json = self.visuals_dir / f"{self.cfg.dataset_name}_statistics_summary.json"
