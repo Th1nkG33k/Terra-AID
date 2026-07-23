@@ -25,12 +25,14 @@ class ProfileMetadataBuilder:
 
 
     # ---------------------------------------------------------
-    # Return tile directories using the dataset config pattern.
+    # Return canonical processed tile directories.
     # ---------------------------------------------------------
     def _tile_dirs(self):
 
-        pattern = getattr(self.cfg, "tile_folder_pattern", "tile*")
-        return sorted(d for d in self.tiles_root.glob(pattern) if d.is_dir())
+        return sorted(
+            (d for d in self.tiles_root.glob("tile *") if d.is_dir()),
+            key=lambda d: int(d.name.removeprefix("tile ")),
+        )
 
 
     # ---------------------------------------------------------

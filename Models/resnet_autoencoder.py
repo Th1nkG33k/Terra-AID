@@ -115,13 +115,6 @@ class ResNetAutoencoder(nn.Module):
     def get_model_type(self) -> str:
         return "resnet_autoencoder"
 
-    def get_xai_target_layer(self):
-        # ---------------------------------------------------------------------
-        # Last convolutional block of the ResNet encoder gives the most
-        # semantically rich spatial features for Grad-CAM.
-        # ---------------------------------------------------------------------
-        return self.layer4[-1]
-
 
 def build_resnet_autoencoder(config):
 

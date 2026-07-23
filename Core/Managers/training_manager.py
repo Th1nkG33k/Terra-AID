@@ -10,7 +10,6 @@ import numpy as np
 from pathlib import Path
 from torch.utils.data import DataLoader
 from Core.Managers.path_manager import PathManager
-from XAI.explainer_factory import ExplainerFactory
 
 
 # ============================================================
@@ -73,109 +72,6 @@ class TrainingManager:
             return section_obj.get(key, default)
         
         return getattr(section_obj, key, default)
-
-    @staticmethod
-    def _model_type(model, config=None):
-
-        if hasattr(model, "get_model_type"):
-            return model.get_model_type()
-        
-        arch = TrainingManager._cfg_get(config, "architecture", default={}) if config is not None else {}
-        
-        if isinstance(arch, dict):
-            return str(arch.get("type", "mae")).lower()
-        
-        return str(getattr(arch, "type", "mae")).lower()
-
-    @staticmethod
-    def _xai_tensor_summary(value):
-
-        if torch.is_tensor(value):
-
-            data = value.detach().float().cpu()
-
-            return {"shape": list(data.shape),
-                    "mean": float(data.mean().item()),
-                    "min": float(data.min().item()),
-                    "max": float(data.max().item()),
-            }
-        
-        return value
-
-
-# --------------------------------------------------------------------------
-# Persist XAI tensors and a small readable manifest.
-# --------------------------------------------------------------------------
-    def _save_xai_artifact(self, explanation, x, meta, xai_dir, epoch, batch_idx):
-        
-        xai_dir = Path(xai_dir)
-        xai_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"epoch_{epoch:03d}_batch_{batch_idx:03d}"
-
-        artifact = {"input": x.detach().cpu(),
-                    "explanation": {k: (v.detach().cpu() if torch.is_tensor(v) else v)
-                                    for k, v in explanation.items()
-                    },
-                    "metadata": meta,
-        }
-
-        torch.save(artifact, xai_dir / f"{stem}.pt")
-
-        manifest = {"epoch": epoch,
-                    "batch_idx": batch_idx,
-                    "method": explanation.get("method"),
-                    "tensors": {k: self._xai_tensor_summary(v) for k, v in explanation.items()},
-        }
-
-        with open(xai_dir / f"{stem}.json", "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=2)
-
-    def _maybe_generate_xai(self, model, x, meta, config, save_dir, epoch, batch_idx, device, worker=None):
-        
-        xai_cfg = self._cfg_get(config, "xai", default={})
-        enabled = True
-        
-        if isinstance(xai_cfg, dict):
-        
-            enabled = xai_cfg.get("enabled", True)
-            method = xai_cfg.get("method", "auto")
-            every = int(xai_cfg.get("run_every_n_epochs", 1) or 1)
-            max_samples = int(xai_cfg.get("max_samples", 1) or 1)
-            patch_size = int(xai_cfg.get("patch_size", 16) or 16)
-        
-        else:
-        
-            enabled = getattr(xai_cfg, "enabled", True)
-            method = getattr(xai_cfg, "method", "auto")
-            every = int(getattr(xai_cfg, "run_every_n_epochs", 1) or 1)
-            max_samples = int(getattr(xai_cfg, "max_samples", 1) or 1)
-            patch_size = int(getattr(xai_cfg, "patch_size", 16) or 16)
-
-        if isinstance(enabled, str):
-            enabled = enabled.lower() in {"true", "1", "yes", "y"}
-
-        if not enabled or epoch % every != 0:
-            return
-
-        model_type = self._model_type(model, config)
-        kwargs = {"patch_size": patch_size} if str(method).lower() in {"auto", "mae", "patch", "mae_patch", "occlusion"} else {}
-
-        try:
-
-            explainer = ExplainerFactory.create(model_type, method=method, **kwargs)
-            x_sample = x[:max_samples].detach().to(device)
-            explanation = explainer.explain(model, x_sample)
-            self._save_xai_artifact(explanation, x_sample, meta, Path(save_dir) / "xai", epoch, batch_idx)
-            
-            if worker:
-                worker.status(f"Epoch {epoch} XAI artifact saved")
-        
-        except Exception as exc:
-            # XAI should never crash model training. Surface the issue and keep training.
-            if worker:
-                worker.status(f"XAI skipped: {exc}")
-            else:
-                print(f"[TrainingManager] XAI skipped: {exc}")
 
     # ---------------------------------------------------------
     # Training function
@@ -290,8 +186,6 @@ class TrainingManager:
             val_mae = 0.0
             val_psnr = 0.0
             val_channel_mse = None
-            xai_sample = None
-            xai_meta = None
 
             with torch.no_grad():
 
@@ -309,10 +203,6 @@ class TrainingManager:
 
                     if val_channel_mse is None:
                         val_channel_mse = self.mse_per_channel(recon, x)
-
-                    if xai_sample is None:
-                        xai_sample = x.detach().cpu()
-                        xai_meta = meta
 
             val_mse /= len(val_loader)
             val_mae /= len(val_loader)
@@ -366,21 +256,6 @@ class TrainingManager:
             }
 
             training_log.append(log_entry)
-
-            # -------------------------------------------------
-            # XAI artifact generation
-            # -------------------------------------------------
-            if xai_sample is not None:
-                self._maybe_generate_xai(model=model,
-                                         x=xai_sample,
-                                         meta=xai_meta,
-                                         config=config,
-                                         save_dir=save_dir,
-                                         epoch=epoch + 1,
-                                         batch_idx=0,
-                                         device=device,
-                                         worker=worker,
-                )
 
             # -------------------------------------------------
             # Checkpointing + early stopping

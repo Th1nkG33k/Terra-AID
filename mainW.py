@@ -448,9 +448,7 @@ def handle_active_page_event(event, values):
 
 def _canonical_dataset_role(dataset_name):
     ds = dataset_manager.get(dataset_name)
-    role = str(getattr(ds, "role", "mixed") if ds else "mixed").lower()
-    return {"prediction": "evaluation", "validation": "predictive", "ground_truth": "predictive",
-            "survey": "evaluation", "discovery": "evaluation"}.get(role, role)
+    return str(getattr(ds, "role", "") if ds else "").lower()
 
 def _check_model_dataset_compatibility(model_name, dataset_name, purpose):
     compatibility = model_manager.check_dataset_compatibility(model_name, dataset_name)
@@ -509,7 +507,6 @@ def handle_task_event(event, values):
 
     if event == "-TASK_MODEL_SET_PREDICTION_DATASET-":
         # ---------------------------------------------------------------------
-        # Backwards-compatible handler for older view_model versions.
         # New role-based UI keeps predictive/evaluation dataset selections local
         # to the page and passes them directly to the relevant task.
         # ---------------------------------------------------------------------

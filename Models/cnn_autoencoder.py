@@ -109,11 +109,6 @@ class ClassicCNNAutoencoder(nn.Module):
     def get_model_type(self) -> str:
         return "cnn_autoencoder"
 
-    def get_xai_target_layer(self):
-        if len(self.encoder_blocks) == 0:
-            return None
-        return self.encoder_blocks[-1].block[0]
-
 
 def build_cnn_autoencoder(config):
 

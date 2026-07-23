@@ -40,19 +40,13 @@ class MultimodalTileDataset(Dataset):
         self.requested_bands = bands
         self.channel_stats = self._load_channel_stats()
 
-        # -----------------------------------------------------
-        # Tile directories: use cfg.tile_folder_pattern if present
-        # -----------------------------------------------------
-        pattern = "tile *"
-
-        if self.cfg is not None and hasattr(self.cfg, "tile_folder_pattern"):
-            pattern = self.cfg.tile_folder_pattern
-
-        print(f"[MultimodalTileDataset] root={self.root_dir} pattern='{pattern}'")
-
+        # Terra-AID owns the dataset structure: processed tiles are always Dataset/tile <index>.
         self.tile_dirs = sorted(
-            d for d in self.root_dir.glob(pattern) if d.is_dir()
+            (d for d in self.root_dir.glob("tile *") if d.is_dir()),
+            key=lambda d: int(d.name.removeprefix("tile ")),
         )
+
+        print(f"[MultimodalTileDataset] root={self.root_dir} tiles={len(self.tile_dirs)}")
 
 
     

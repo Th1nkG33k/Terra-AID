@@ -133,7 +133,6 @@ class DatasetConfig(BaseConfig):
         self.tile_dir_path = self.paths.tile_dir
         self.tile_manifest_path = self.paths.tile_manifest
         self.channel_stats_path = self.paths.channel_stats
-        self.tile_folder_pattern = self.cfg.get("tile_folder_pattern", "tile*")
 
         self.tile_structure = _ns(self.cfg.get("tile_structure", {}), width=None, height=None, tile_format="tif")
 
@@ -153,7 +152,7 @@ class DatasetConfig(BaseConfig):
         self.processing = _ns(proc, resolution="10m", include_dem=False, include_soil=False,
                               include_indices=False, include_qc_mask=False, allow_categorical_inputs=False)
 
-        # Runtime-derived channel information. Kept for backwards-compatible code,
+        # Runtime-derived channel information used by managers and models.
         # but not written back into YAML.
         self.input_channels = get_model_input_channels(self)
         self.mask_channels = get_mask_channels(self)
@@ -280,7 +279,7 @@ class ModelConfig(BaseConfig):
     def set_runtime_input_from_dataset(self, dataset_cfg: DatasetConfig):
         self._sync_runtime_channels(dataset_cfg.input_channels, dataset_cfg.mask_channels)
 
-    # Backwards-compatible name used by current managers/tasks. It no longer writes
+    # Runtime name used by current managers/tasks. It no longer writes
     # channel lists to YAML.
     def set_input_profile_from_dataset(self, dataset_cfg: DatasetConfig):
         self.set_runtime_input_from_dataset(dataset_cfg)

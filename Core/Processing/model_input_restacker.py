@@ -19,10 +19,12 @@ class ModelInputRestacker:
 
         self.cfg = cfg
         self.tiles_root = Path(cfg.processed_path)
-        self.pattern = getattr(cfg, "tile_folder_pattern", "tile*")
 
     def _tile_dirs(self):
-        return sorted(d for d in self.tiles_root.glob(self.pattern) if d.is_dir())
+        return sorted(
+            (d for d in self.tiles_root.glob("tile *") if d.is_dir()),
+            key=lambda d: int(d.name.removeprefix("tile ")),
+        )
 
     def _load_meta(self, tile_dir: Path):
 

@@ -207,7 +207,7 @@ def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager
 
     workflow = str(workflow or "predictive").lower()
     if workflow not in {"predictive", "evaluation"}:
-        workflow = "predictive"
+        raise ValueError(f"Unsupported prediction workflow: {workflow}")
     workflow_label = "evaluation" if workflow == "predictive" else "prediction"
 
     _progress(worker, 5, f"Checking {workflow_label} compatibility")
@@ -244,9 +244,7 @@ def run_prediction_task(model_name, dataset_name, model_manager, dataset_manager
 
     _apply_latest_calibration_to_model_cfg(cfg, dataset_name, worker=worker)
 
-    role = str(getattr(ds_cfg, "role", "mixed") or "mixed").lower()
-    role = {"prediction": "evaluation", "validation": "predictive", "ground_truth": "predictive",
-            "survey": "evaluation", "discovery": "evaluation"}.get(role, role)
+    role = str(getattr(ds_cfg, "role", "") or "").lower()
 
     if workflow == "predictive" and role != "predictive":
         raise RuntimeError(f"Model evaluation requires a labelled evaluation/ground-truth dataset; '{dataset_name}' has role '{role}'.")
@@ -318,8 +316,7 @@ def calibrate_prediction_threshold_task(model_name, dataset_name, model_manager,
     if ds_cfg is None:
         raise RuntimeError(f"Dataset not found: {dataset_name}")
 
-    role = str(getattr(ds_cfg, "role", "mixed") or "mixed").lower()
-    role = {"prediction": "evaluation", "validation": "predictive", "ground_truth": "predictive"}.get(role, role)
+    role = str(getattr(ds_cfg, "role", "") or "").lower()
     if role != "predictive":
         raise RuntimeError(f"Threshold calibration requires a labelled evaluation/ground-truth dataset; '{dataset_name}' has role '{role}'.")
 

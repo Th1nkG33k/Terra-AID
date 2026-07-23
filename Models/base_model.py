@@ -12,8 +12,3 @@ class ModelBase(ABC):
     @abstractmethod
     def get_model_type(self) -> str:
         pass
-
-    def get_xai_target_layer(self):
-        
-        # Optional. Only needed for models such as ResNet50.
-        return None

@@ -22,9 +22,7 @@ from Core.Utils.channel_policy import DEFAULT_BANDS, get_model_input_channels, g
 class DatasetManager:
 
     # --------------------------------------------------------
-    # Backwards-compatible constructor:
-    # - new code passes config_manager=AppContext.configs
-    # - old code may still pass a configs_dir path
+    # Uses the shared ConfigManager when supplied; otherwise creates one.
     # --------------------------------------------------------
 
     def __init__(self, configs_dir: str | Path = None, config_manager: ConfigManager | None = None):
@@ -57,34 +55,15 @@ class DatasetManager:
     # ---------------------------------------------------------
     def _role_allowed(self, dataset_role: str, mode: str | None) -> bool:
 
-        role = (dataset_role or "mixed").lower()
+        role = (dataset_role or "").lower()
         mode = (mode or "all").lower()
-        # --------------------------------------------------------
-        # Canonical roles:
-        #   training   -> used to train reconstruction models
-        #   predictive -> labelled/ground-truth datasets used to evaluate models and calibrate thresholds
-        #   evaluation -> unlabelled survey/discovery datasets used for prediction/anomaly discovery
-        #   Backwards-compatible aliases are accepted for older configs/UI calls.
-        # --------------------------------------------------------
-        aliases = {
-            "prediction": "evaluation",
-            "validation": "predictive",
-            "ground_truth": "predictive",
-            "survey": "evaluation",
-            "discovery": "evaluation",
-        }
-
-        role = aliases.get(role, role)
-        mode = aliases.get(mode, mode)
-
         allowed = {
-            "all": {"training", "predictive", "evaluation", "mixed"},
+            "all": {"training", "predictive", "evaluation"},
             "training": {"training"},
             "predictive": {"predictive"},
             "evaluation": {"evaluation"},
         }
-
-        return role in allowed.get(mode, allowed["all"])
+        return role in allowed.get(mode, set())
 
 
     # ---------------------------------------------------------
@@ -175,21 +154,12 @@ class DatasetManager:
         label = str(values.get("-CDC_ROLE-", "Training") or "Training").strip().lower()
         mapping = {
             "training": "training",
-            # New UI terminology:
-            #   Evaluation = labelled/ground-truth model evaluation.
-            #   Prediction = unlabelled anomaly discovery.
-            # Internal role names remain backwards-compatible with existing configs.
             "evaluation": "predictive",
             "prediction": "evaluation",
-            # Legacy labels / aliases.
-            "predictive": "predictive",
-            "ground truth": "predictive",
-            "ground_truth": "predictive",
-            "validation": "predictive",
-            "discovery": "evaluation",
-            "survey": "evaluation",
         }
-        return mapping.get(label, "training")
+        if label not in mapping:
+            raise ValueError(f"Unsupported dataset role: {label}")
+        return mapping[label]
 
 
     # ---------------------------------------------------------
@@ -367,7 +337,7 @@ class DatasetManager:
         # Build profile-driven metadata after processing.
         metadata = ProfileMetadataBuilder(cfg).run()
 
-        tile_count = len(list(Path(cfg.processed_path).glob(cfg.tile_folder_pattern)))
+        tile_count = len(list(Path(cfg.processed_path).glob("tile *")))
         # Update stage and persistent processing metadata. Channel count is derived
         # from bands.included at runtime and is no longer written to YAML.
         cfg.stage = "processed"

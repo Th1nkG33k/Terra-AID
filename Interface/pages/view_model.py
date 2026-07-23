@@ -22,8 +22,7 @@ class ModelViewer(ViewerBase):
         self.window = None
         self.img_util = ImageUtility()
 
-        # Internal names are kept backwards-compatible with the existing
-        # task/workflow code. The UI now presents these as:
+        # Internal workflow names map to the UI terminology:
         #   predictive dataset -> Evaluation Dataset (labelled / ground truth)
         #   evaluation dataset -> Prediction Dataset (unlabelled anomaly search)
         self.selected_predictive_dataset = None

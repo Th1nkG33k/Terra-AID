@@ -29,10 +29,7 @@ from Core.Pytorch.pytorch_dataset_factory import PyTorchDatasetFactory
 # ============================================================
 class PredictionManager:
 
-    MASK_CANDIDATES = [
-                        "ground_truth.tif", "GroundTruth.tif", "GROUND_TRUTH.tif",
-                        "labels.tif", "label.tif", "mask.tif", "GT.tif",
-    ]
+    GROUND_TRUTH_FILENAME = "ground_truth.tif"
     # --------------------------------------------------------
     # Prediction presets are intentionally conservative defaults rather than
     # hard-coded scientific conclusions. They give users repeatable starting
@@ -129,7 +126,7 @@ class PredictionManager:
                 break
 
             x, meta = dataset[idx]
-            tile_name = meta.get("tile_id", f"tile_{idx}") if isinstance(meta, dict) else f"tile_{idx}"
+            tile_name = meta.get("tile_id", f"tile {idx}") if isinstance(meta, dict) else f"tile {idx}"
             tile_dir = Path(dataset.tile_dirs[idx])
             out_dir = save_dir / tile_name
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -352,7 +349,7 @@ class PredictionManager:
                 break
 
             x, meta = dataset[idx]
-            tile_name = meta.get("tile_id", f"tile_{idx}") if isinstance(meta, dict) else f"tile_{idx}"
+            tile_name = meta.get("tile_id", f"tile {idx}") if isinstance(meta, dict) else f"tile {idx}"
             tile_dir = Path(dataset.tile_dirs[idx])
             current_channel_names = meta.get("channel_names", []) if isinstance(meta, dict) else []
 
@@ -1059,14 +1056,8 @@ class PredictionManager:
     # Ground truth metrics
     # ---------------------------------------------------------
     def _find_ground_truth(self, tile_dir: Path):
-        
-        for name in self.MASK_CANDIDATES:
-            p = self._find_case_insensitive(tile_dir, name)
-        
-            if p:
-                return p
-        
-        return None
+        path = tile_dir / self.GROUND_TRUTH_FILENAME
+        return path if path.exists() else None
 
     def _read_mask(self, path: Path, target_shape):
         

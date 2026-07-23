@@ -133,13 +133,6 @@ class MAE(nn.Module):
     def get_model_type(self) -> str:
         return "mae"
 
-    def get_xai_target_layer(self):
-        return None
-
-
-# ---------------------------------------------------------
-# MAE Builder function
-# ---------------------------------------------------------
 
 def build_mae(config):
     """

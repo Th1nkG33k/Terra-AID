@@ -39,4 +39,4 @@ class TileViewManager:
         
         # Use folder name from metadata if present, else index.
         _, meta = self.get_tile_sample(idx)
-        return meta.get("tile_id", f"tile_{idx}")
+        return meta.get("tile_id", f"tile {idx}")

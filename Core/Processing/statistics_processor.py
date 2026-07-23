@@ -19,10 +19,8 @@ from pathlib import Path
 #   - correlation matrix + heatmap
 #   - UMAP projection, with PCA fallback if umap-learn is unavailable
 #
-# The processor is deliberately tolerant of the recent folder refactors:
-#   Dataset/tile 0/model_input.tif
-#   Dataset/tile_0/model_input.tif
-#   Dataset/<any tile folder>/model_input.tif
+# Terra-AID owns the processed dataset structure:
+#   Dataset/tile <index>/model_input.tif
 # ============================================================================
 class StatisticsProcessor:
 
@@ -30,7 +28,6 @@ class StatisticsProcessor:
         self.cfg = cfg
         self.worker = worker
         self.root = Path(cfg.processed_path).resolve()
-        self.pattern = getattr(cfg, "tile_folder_pattern", "tile*") or "tile*"
 
         paths = getattr(cfg, "paths", None)
         visuals_dir = getattr(paths, "visuals_dir", None) if paths is not None else None
@@ -46,7 +43,7 @@ class StatisticsProcessor:
         self.max_umap_samples = int(getattr(cfg, "max_umap_samples", 50_000))
         self.rng = np.random.default_rng(42)
 
-        print(f"[StatisticsProcessor] root={self.root} pattern='{self.pattern}'")
+        print(f"[StatisticsProcessor] root={self.root}")
         print(f"[StatisticsProcessor] visuals={self.visuals_dir}")
 
         self.tile_dirs = self._discover_tile_dirs()
@@ -54,9 +51,7 @@ class StatisticsProcessor:
             raise RuntimeError(
                 "No processed tile folders containing model_input.tif were found.\n\n"
                 f"Checked: {self.root}\n"
-                "Expected examples:\n"
-                "  Dataset/tile 0/model_input.tif\n"
-                "  Dataset/tile_0/model_input.tif"
+                "Expected: Dataset/tile <index>/model_input.tif"
             )
 
     # ------------------------------------------------------------------
@@ -73,25 +68,11 @@ class StatisticsProcessor:
         if not self.root.exists():
             raise RuntimeError(f"Processed dataset folder does not exist: {self.root}")
 
-        # If a single-tile dataset was written directly into Dataset/, support it.
-        if self._find_model_input(self.root) is not None:
-            return [self.root]
-
-        candidates = []
-
-        # Preferred route: configured pattern, usually tile*.
-        for d in self.root.glob(self.pattern):
-            if d.is_dir() and self._find_model_input(d) is not None:
-                candidates.append(d)
-
-        # Fallback route: support any child folder containing model_input.tif.
-        if not candidates:
-            for p in self.root.rglob("*"):
-                if p.is_file() and p.name.lower() == "model_input.tif":
-                    candidates.append(p.parent)
-
-        unique = {d.resolve(): d for d in candidates}
-        return sorted(unique.values(), key=self._tile_sort_key)
+        candidates = sorted(
+            (d for d in self.root.glob("tile *") if d.is_dir()),
+            key=lambda d: int(d.name.removeprefix("tile ")),
+        )
+        return [d for d in candidates if (d / "model_input.tif").exists()]
 
     # ------------------------------------------------------------------
     def _tile_sort_key(self, path: Path):

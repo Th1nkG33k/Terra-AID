@@ -127,7 +127,7 @@ class PageCreateModelTask:
     # ------------------------------------------------------------
     # Extract a percentage from worker progress payloads.
     # Supports integers, floats, dictionaries, and strings such as
-    # "Prediction 42% — tile_0".
+    # "Prediction 42% — tile 0".
     # ------------------------------------------------------------
     def _extract_percent(self, data):
 

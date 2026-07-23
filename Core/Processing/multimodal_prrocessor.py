@@ -415,128 +415,23 @@ class MultimodalProcessor:
     # This keeps the config simple while making the processing stage responsible
     # for producing the raster mask required by prediction/evaluation.
     # ---------------------------------------------------------
-    def _raw_tile_folder_name(self, s2_path: Path) -> str:
-
-        s2_path = Path(s2_path)
-
-        # New raw layout:
-        #   Raw/S2/images/<tile>.tif
-        # In this layout there is no meaningful raw tile folder.  Use the
-        # dataset name as a stable source label instead of returning ``S2``.
-        if s2_path.parent.name.lower() == "images" and s2_path.parent.parent.name.lower() == "s2":
-            return str(getattr(self.cfg, "dataset_name", s2_path.stem))
-
-        # Legacy raw layout:
-        #   Raw/S2/Tile 1/images/<tile>.tif
-        if s2_path.parent.name.lower() == "images":
-            return s2_path.parent.parent.name
-
-        return s2_path.parent.name
-
-
     def _ground_truth_candidates(self, s2_path: Path, tile_dir: Path):
 
         labels = getattr(self.cfg, "labels", None)
-
         source_root = Path(getattr(self.cfg, "raw_ground_truth_path", self.cfg.paths.root / "Raw" / "GroundTruth"))
+
         if not source_root.exists():
             return []
-        # ----------------------------------------------------------------------------
-        # If a labels block exists, honour it.  If it does not exist, or if it
-        # is the runtime default with type=None, fall back to the Terra-AID
-        # convention used by labelled validation datasets.  Both raw layouts are
-        # supported:
-        #   Raw/GroundTruth/<tile folder>/archaeology_selected.geojson
-        #   Raw/GroundTruth/archaeology_selected.geojson
-        # ----------------------------------------------------------------------------
 
         source = getattr(labels, "source", None) if labels is not None else None
-        source_pattern = getattr(labels, "source_pattern", None) if labels is not None else None
-        if not source_pattern:
-            source_pattern = "{tile_folder}/archaeology_selected.geojson"
-
-        candidates = []
-
         if source:
-            src = Path(source)
-
-            if not src.is_absolute():
-                src = self.cfg.paths.root / src
-
-            candidates.append(src)
-
-        raw_tile_folder = self._raw_tile_folder_name(s2_path)
-
-        # ----------------------------------------------------------------------------
-        # Try to recover a useful tile index from the raw S2 filename, raw tile
-        # folder, or processed folder.  This covers ``tile 0``, legacy
-        # ``tile_0_0`` names, and the new flat Raw/S2/images layout.
-        # ----------------------------------------------------------------------------
-
-        stem_tokens = s2_path.stem.replace("-", "_").replace(" ", "_").split("_")
-        name_tokens = tile_dir.name.replace("-", "_").replace(" ", "_").split("_")
-        raw_tokens = raw_tile_folder.replace("-", "_").replace(" ", "_").split("_")
-
-        numeric_tokens = [t for t in stem_tokens + name_tokens + raw_tokens if str(t).isdigit()]
-        tile_index = numeric_tokens[0] if numeric_tokens else s2_path.stem.split("_")[-1]
-
-        tile_tokens = [raw_tile_folder,
-                       raw_tile_folder.lower(),
-                       raw_tile_folder.replace("Tile", "tile"),
-                       raw_tile_folder.replace("tile", "Tile"),
-                       raw_tile_folder.replace("_", " "),
-                       raw_tile_folder.replace(" ", "_"),
-                       f"tile {tile_index}",
-                       f"Tile {tile_index}",
-                       f"tile_{tile_index}",
-                       f"Tile_{tile_index}",
-                       tile_dir.name,
-                       tile_dir.name.replace("_", " "),
-                       tile_dir.name.replace(" ", "_")]
-
-        filenames = ["archaeology_selected.geojson",
-                     "archaeology_selected.json",
-                     "ground_truth.geojson",
-                     "ground_truth.json",
-                     "labels.geojson",
-                     "label.geojson"]
-
-        # New flat layout: allow the label file to live directly in Raw/GroundTruth.
-        for filename in filenames:
-            candidates.append(source_root / filename)
-
-        for token in dict.fromkeys(tile_tokens):
-
-            try:
-                rel = source_pattern.format(tile_folder=token,
-                                            tile_id=tile_index,
-                                            processed_tile=tile_dir.name,
-                                            raw_tile_folder=raw_tile_folder)
-            except KeyError:
-                rel = source_pattern.replace("{tile_folder}", token)
-
-            path = Path(rel)
-
+            path = Path(source)
             if not path.is_absolute():
-                path = source_root / path
+                path = self.cfg.paths.root / path
+            return [path]
 
-            candidates.append(path)
-
-            # Also try common vector filenames inside each candidate tile folder.
-            token_dir = source_root / token
-            for filename in filenames:
-                candidates.append(token_dir / filename)
-
-        # ----------------------------------------------------------------------------
-        # Last-resort shallow search.  This is deliberately limited to one
-        # folder level, so it does not become an expensive recursive scan.
-        # ----------------------------------------------------------------------------
-
-        for filename in filenames:
-            candidates.extend(source_root.glob(f"*/{filename}"))
-
-        # Return unique paths in order.
-        return list(dict.fromkeys(candidates))
+        # Terra-AID writes one AOI-level archaeology vector and clips it to each tile.
+        return [source_root / "archaeology_selected.geojson"]
 
 
     # ---------------------------------------------------------
@@ -714,7 +609,7 @@ class MultimodalProcessor:
         meta = {"tile_id": tile_id,
                 "tile_name": f"tile {tile_index}",
                 "source_s2_path": str(s2_path),
-                "source_tile_folder": self._raw_tile_folder_name(s2_path),
+                "source_tile_folder": self.cfg.dataset_name,
                 "bands": band_names,
                 "height": profile["height"],
                 "width": profile["width"],
@@ -904,16 +799,13 @@ class MultimodalProcessor:
 
         self.processed_root.mkdir(parents=True, exist_ok=True)
 
-        for tile_dir in self.processed_root.glob("tile*"):
+        for tile_dir in self.processed_root.glob("tile *"):
             if tile_dir.is_dir():
                 shutil.rmtree(tile_dir)
 
 
     # ---------------------------------------------------------
-    # Discover raw S2 image files.
-    # Supports both raw layouts:
-    #   New:    Raw/S2/images/*.tif
-    #   Legacy: Raw/S2/Tile 1/images/*.tif
+    # Discover raw S2 files from the canonical flat layout.
     # ---------------------------------------------------------
     def _discover_s2_files(self) -> list[Path]:
 
@@ -924,16 +816,6 @@ class MultimodalProcessor:
             print(f"RUN - Image_Dir: {direct_images_dir}")
             s2_files.extend(sorted(direct_images_dir.glob("*.tif")))
             s2_files.extend(sorted(direct_images_dir.glob("*.tiff")))
-
-        legacy_tile_dirs = sorted(d for d in self.raw_s2_root.glob("Tile*") if d.is_dir())
-
-        for tdir in legacy_tile_dirs:
-            images_dir = tdir / "images"
-            print(f"RUN - Image_Dir: {images_dir}")
-
-            if images_dir.exists():
-                s2_files.extend(sorted(images_dir.glob("*.tif")))
-                s2_files.extend(sorted(images_dir.glob("*.tiff")))
 
         # Return unique paths in a stable order.
         return sorted(dict.fromkeys(s2_files))

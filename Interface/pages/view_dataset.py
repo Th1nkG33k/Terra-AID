@@ -536,15 +536,12 @@ class DatasetViewer(ViewerBase):
     def _processed_root(self) -> Path:
         return Path(self.pm.resolve_path(self.cfg.processed_path))
 
-    def _tile_sort_key(self, path: Path):
-        digits = "".join(ch for ch in path.name if ch.isdigit())
-        return int(digits) if digits else path.name
-
     def _tile_dirs(self):
         root = self._processed_root()
-        # Supports both historic "tile 0" and newer "tile_0" naming.
-        dirs = [d for d in root.iterdir() if d.is_dir() and d.name.lower().startswith("tile")]
-        return sorted(dirs, key=self._tile_sort_key)
+        return sorted(
+            (d for d in root.glob("tile *") if d.is_dir()),
+            key=lambda d: int(d.name.removeprefix("tile ")),
+        )
 
     def _refresh_tile_selector(self):
         try:
