@@ -1,15 +1,22 @@
 import PySimpleGUI as sg
 
-from Interface.theme import RText, RButton, COLORS, FONTS, BUTTON_COLORS
+from Interface.theme import (
+    RText,
+    RButton,
+    RScrollableSelector,
+    COLORS,
+    FONTS,
+    BUTTON_COLORS,
+)
 from Core.Managers.dataset_manager import DatasetManager
 
 
 # ============================================================
 # DATASETS PAGE
 #
-#   Dataset landing page with an embedded selector.
-#   This replaces the old New/Load two-button page and avoids
-#   opening the separate Select Dataset task popup from here.
+#   Dataset landing page with an embedded selector. The filter
+#   is intentionally placed above the selector so the list has
+#   the full right-hand width and its Select actions stay visible.
 # ============================================================
 class PageDatasets:
     key = "-PAGE_DATASETS-"
@@ -49,12 +56,12 @@ class PageDatasets:
     def _display_role(self, role):
         role = str(role or "mixed").strip().lower()
         mapping = {
-                    "predictive": "evaluation",
-                    "ground_truth": "evaluation",
-                    "validation": "evaluation",
-                    "evaluation": "prediction",
-                    "discovery": "prediction",
-                    "survey": "prediction",
+            "predictive": "evaluation",
+            "ground_truth": "evaluation",
+            "validation": "evaluation",
+            "evaluation": "prediction",
+            "discovery": "prediction",
+            "survey": "prediction",
         }
         return mapping.get(role, role)
 
@@ -74,12 +81,14 @@ class PageDatasets:
             structure = self._safe(opt.get("structure"), "aoi_grid")
             channels = self._safe(opt.get("num_input_channels"), "?")
 
-            label = f"{tile_count} tiles | {stage} | {display_role} | {structure} | {channels} model ch"
+            label = (
+                f"{tile_count} tiles  |  {stage}  |    {channels} model ch"
+            )
             items.append({
-                          "name": name,
-                          "label": label,
-                          "stage": str(stage),
-                          "role": str(display_role),
+                "name": name,
+                "label": label,
+                "stage": str(stage),
+                "role": str(display_role),
             })
 
         self.dataset_items = items
@@ -100,90 +109,174 @@ class PageDatasets:
     # ------------------------------------------------------------
     # UI
     # ------------------------------------------------------------
-    def _build_filter_panel(self):
-        combo_style = {
-                        "font": FONTS["body"],
-                        "background_color": COLORS["bg_panel"],
-                        "text_color": COLORS["text_primary"],
-                        "button_background_color": COLORS["accent_primary"],
-                        "button_arrow_color": COLORS["text_on_accent"],
-                        "readonly": True,
-                        "enable_events": True,
-                        "size": (24, 1),
+    def _combo_style(self):
+        return {
+            "font": FONTS["body"],
+            "background_color": COLORS["bg_panel"],
+            "text_color": COLORS["text_primary"],
+            "button_background_color": COLORS["accent_primary"],
+            "button_arrow_color": COLORS["text_on_accent"],
+            "readonly": True,
+            "enable_events": True,
+            "size": (20, 1),
         }
 
+    def _build_filter_panel(self):
+        combo_style = self._combo_style()
+
         return sg.Column(
-                        [
-                            [RText("Filter", font=FONTS["header"], justification="center")],
-                            [
-                                RText("Role", w=0.12),
-                                sg.Combo(["All Roles"], default_value="All Roles", key=self.filter_role_key, **combo_style),
-                            ],
-                            [
-                                RText("Stage", w=0.12),
-                                sg.Combo(["All Stages"], default_value="All Stages", key=self.filter_stage_key, **combo_style),
-                            ],
-                        ],
-                        background_color=COLORS["bg_dark"],
-                        element_justification="center",
-                        vertical_alignment="top",
-                        pad=((40, 30), (35, 0)),
-                        expand_y=True,
+            [
+                [
+                    RText(
+                        "Filter datasets",
+                        font=FONTS["body_bold"],
+                        color=COLORS["accent_highlight"],
+                        bg=COLORS["bg_surface"],
+                    )
+                ],
+                [
+                    RText("Role", color=COLORS["text_secondary"], bg=COLORS["bg_surface"]),
+                    sg.Combo(
+                        ["All Roles"],
+                        default_value="All Roles",
+                        key=self.filter_role_key,
+                        **combo_style,
+                    ),
+                    RText("Stage", color=COLORS["text_secondary"], bg=COLORS["bg_surface"]),
+                    sg.Combo(
+                        ["All Stages"],
+                        default_value="All Stages",
+                        key=self.filter_stage_key,
+                        **combo_style,
+                    ),
+                ],
+            ],
+            background_color=COLORS["bg_surface"],
+            pad=((0, 0), (8, 10)),
+            expand_x=True,
+            element_justification="left",
         )
 
     def _build_list_row(self, idx):
+        row_bg = COLORS["bg_surface"] if idx % 2 == 0 else COLORS["bg_panel"]
+
         info_col = sg.Column(
             [
-                [sg.Text("", key=self._name_key(idx), font=FONTS["body"], text_color=COLORS["text_primary"], background_color=COLORS["bg_panel"], size=(28, 1))],
-                [sg.Text("", key=self._label_key(idx), font=FONTS["body"], text_color=COLORS["text_primary"], background_color=COLORS["bg_panel"], size=(38, 1))],
+                [
+                    sg.Text(
+                        "",
+                        key=self._name_key(idx),
+                        font=FONTS["body_bold"],
+                        text_color=COLORS["text_primary"],
+                        background_color=row_bg,
+                        size=(34, 1),
+                    )
+                ],
+                [
+                    sg.Text(
+                        "",
+                        key=self._label_key(idx),
+                        font=FONTS["body"],
+                        text_color=COLORS["text_secondary"],
+                        background_color=row_bg,
+                        size=(35, 1),
+                    )
+                ],
             ],
-            background_color=COLORS["bg_panel"],
-            pad=(8, 6),
+            background_color=row_bg,
+            pad=((12, 6), (7, 7)),
             expand_x=True,
         )
 
-        button = sg.Button("Select",
-                           key=self._dataset_item_key(idx),
-                           font=FONTS["body"],
-                           button_color=BUTTON_COLORS["primary"],
-                           mouseover_colors=BUTTON_COLORS["primary_hover"],
-                           border_width=0,
-                           size=(8, 1),
-                           pad=(8, 8),
+        button = sg.Button(
+                            "Select",
+                            key=self._dataset_item_key(idx),
+                            font=FONTS["body"],
+                            button_color=BUTTON_COLORS["primary"],
+                            mouseover_colors=BUTTON_COLORS["primary_hover"],
+                            border_width=0,
+                            size=(8, 1),
+                            pad=((8, 12), (8, 8)),
         )
 
         return sg.pin(
-            sg.Column([[info_col, button]],
-                       key=self._row_key(idx),
-                       background_color=COLORS["bg_panel"],
-                       visible=False,
-                       pad=(4, 4),
-                       expand_x=True,
+            sg.Column(
+                [[info_col, button]],
+                key=self._row_key(idx),
+                background_color=row_bg,
+                visible=False,
+                pad=((4, 4), (3, 3)),
+                expand_x=True,
             )
         )
 
     def _build_selector_panel(self):
         rows = [[self._build_list_row(idx)] for idx in range(self.MAX_ROWS)]
-
-        list_col = sg.Column(rows,
-                             key=self.list_key,
-                             background_color=COLORS["bg_panel"],
-                             scrollable=True,
-                             vertical_scroll_only=True,
-                             size=(410, 500),
-                             pad=(0, 0),
-                             expand_y=True,
+        list_col = RScrollableSelector(
+                                        key=self.list_key,
+                                        layout=rows,
+                                        w=0.48,
+                                        h=0.40,
+                                        min_w=300,
+                                        max_w=520,
+                                        min_h=310,
+                                        max_h=435,
+                                        background_color=COLORS["bg_panel"],
         )
 
-        return sg.Column([
-                                [RText("Load Dataset", color=COLORS["accent_highlight"], font=FONTS["header"], justification="center")],
-                                [list_col],
-                         ],
-                         background_color=COLORS["bg_dark"],
-                         element_justification="center",
-                         vertical_alignment="top",
-                         pad=((20, 0), (25, 0)),
-                         expand_y=True,
+        return sg.Column(
+            [
+                [
+                    RText(
+                        "Load Dataset",
+                        color=COLORS["accent_highlight"],
+                        font=FONTS["header"],
+                    )
+                ],
+                [
+                    RText(
+                        "Choose an existing dataset to inspect, process or use with a model.",
+                        color=COLORS["text_secondary"],
+                    )
+                ],
+                [self._build_filter_panel()],
+                [sg.HorizontalSeparator(color=COLORS["line_bright"], pad=((0, 0), (0, 8)))],
+                [list_col],
+            ],
+            background_color=COLORS["bg_dark"],
+            element_justification="left",
+            vertical_alignment="top",
+            pad=((28, 12), (24, 0)),
+            expand_x=True,
+            expand_y=True,
+        )
+
+    def _build_create_panel(self):
+        return sg.Column(
+            [
+                [
+                    RText(
+                        "Create Dataset",
+                        color=COLORS["accent_highlight"],
+                        bg=COLORS["bg_surface"],
+                        font=FONTS["header"],
+                    )
+                ],
+                [
+                    sg.Text(
+                        "Define a new area of interest and prepare its satellite, soil and elevation data.",
+                        font=FONTS["body"],
+                        text_color=COLORS["text_secondary"],
+                        background_color=COLORS["bg_surface"],
+                        size=(34, 3),
+                    )
+                ],
+                [RButton("New Dataset", key="-PAGE_CREATE_DATASET_CONF-", pad=((0, 0), (12, 4)))],
+            ],
+            background_color=COLORS["bg_surface"],
+            vertical_alignment="top",
+            pad=((38, 28), (24, 0)),
+            size=(310, 180),
         )
 
     def build(self, window):
@@ -192,33 +285,26 @@ class PageDatasets:
         title_row = [RText("Datasets", key="-DATASETS_TITLE-", w=0.30)]
         separator = [sg.HorizontalSeparator(color=COLORS["line_bright"])]
 
-        create_panel = sg.Column([
-                                    [RButton("New Dataset", key="-PAGE_CREATE_DATASET_CONF-", w=0.16)],
-                                 ],
-                                 background_color=COLORS["bg_dark"],
-                                 vertical_alignment="top",
-                                 pad=((45, 40), (35, 0)),
-        )
-
-        content_row = [create_panel,
-                       self._build_filter_panel(),
-                       sg.VSeparator(color=COLORS["line_bright"]),
-                       self._build_selector_panel(),
-                       sg.Push(),
+        content_row = [
+            self._build_create_panel(),
+            sg.VSeparator(color=COLORS["line_bright"], pad=((12, 0), (24, 8))),
+            self._build_selector_panel(),
         ]
 
-        layout = [title_row,
-                  separator,
-                  content_row,
-                  [sg.HorizontalSeparator(color=COLORS["line_bright"])],
+        layout = [
+            title_row,
+            separator,
+            content_row,
+            [sg.HorizontalSeparator(color=COLORS["line_bright"])],
         ]
 
-        return sg.Column(layout,
-                         key=self.key,
-                         expand_x=True,
-                         expand_y=True,
-                         background_color=COLORS["bg_dark"],
-                         visible=False,
+        return sg.Column(
+                        layout,
+                        key=self.key,
+                        expand_x=True,
+                        expand_y=True,
+                        background_color=COLORS["bg_dark"],
+                        visible=False,
         )
 
     # ------------------------------------------------------------
@@ -252,7 +338,6 @@ class PageDatasets:
         try:
             role_value = role_value if role_value is not None else window[self.filter_role_key].get()
             stage_value = stage_value if stage_value is not None else window[self.filter_stage_key].get()
-
         except Exception:
             role_value = "All Roles"
             stage_value = "All Stages"
@@ -267,15 +352,12 @@ class PageDatasets:
                 window[self._name_key(idx)].update(item["name"])
                 window[self._label_key(idx)].update(item["label"])
                 window[self._row_key(idx)].update(visible=is_visible)
-
             except Exception:
                 pass
 
         for idx in range(len(self.dataset_items), self.MAX_ROWS):
-
             try:
                 window[self._row_key(idx)].update(visible=False)
-
             except Exception:
                 pass
 
@@ -305,8 +387,5 @@ class PageDatasets:
 
         return self.dataset_items[idx]["name"]
 
-    # ------------------------------------------------------------
-    # WORKER MESSAGE HANDLER (not used yet)
-    # ------------------------------------------------------------
     def on_worker_message(self, task_id, msg_type, data):
         pass

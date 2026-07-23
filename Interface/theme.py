@@ -95,6 +95,7 @@ FONTS = {
             "title": ("Segoe UI Semibold", 18),
             "header": ("Segoe UI Semibold", 14),
             "body": ("Segoe UI", 11),
+            "body_bold": ("Segoe UI Semibold", 11),
             "mono": ("Consolas", 10),
 }
 
@@ -431,6 +432,42 @@ def RPanelFixed(key, layout, width, pad=SPACING["pad_medium"]):
                      expand_y=False,
     )
 
+def RScrollableSelector(key, layout, w=0.46, h=0.55,
+                        min_w=460, max_w=820, min_h=300, max_h=540,
+                        background_color=None, pad=(0, 0)):
+    """Scrollable list area used by the Dataset and Model landing pages.
+
+    The list grows with the main form while retaining enough width for the
+    fixed Select action at the right of every row. Keeping this behaviour in
+    theme.py prevents the two landing pages drifting apart visually.
+    """
+
+    bg = background_color or COLORS["bg_panel"]
+    initial_width = vw(1360, w, min_px=min_w, max_px=max_w)
+    initial_height = vh(767, h, min_px=min_h, max_px=max_h)
+
+    col = sg.Column(
+        layout,
+        key=key,
+        background_color=bg,
+        scrollable=True,
+        vertical_scroll_only=True,
+        size=(initial_width, initial_height),
+        pad=pad,
+        expand_x=True,
+        expand_y=True,
+    )
+
+    def resize(win_w, win_h):
+        _safe_configure(
+            col,
+            width=vw(win_w, w, min_px=min_w, max_px=max_w),
+            height=vh(win_h, h, min_px=min_h, max_px=max_h),
+        )
+
+    register_responsive(col, resize)
+    return col
+
 def RDSPanel(key, layout, w=0.30, pad=SPACING["pad_small"], valign="top"):
 
     col = sg.Column(layout,
@@ -696,14 +733,16 @@ def RImageButton(path, key, text="", size_ratio=0.15, pad=(10, 10)):
 # ============================================================
 # BANNER IMAGE
 # ============================================================
+# -------------------------------------------------------------------------------
+    # Create a compact banner that resizes with the main form.
+
+    # The complete source image is resampled into the available banner area on
+    # every window-size change. This keeps the header compact, displays the whole
+    # logo, and prevents Tk from showing a cropped section of the full-size file.
+# -------------------------------------------------------------------------------
 def RBannerImage(path, key="-HEADER_BANNER-", w=1.00, h_ratio=0.08,
                  min_h=55, max_h=105, min_w=420, max_w=860, horizontal_margin=24):
-    """Create a compact banner that resizes with the main form.
 
-    The complete source image is resampled into the available banner area on
-    every window-size change. This keeps the header compact, displays the whole
-    logo, and prevents Tk from showing a cropped section of the full-size file.
-    """
 
     resolved = _resolve_image_path(path)
     render_cache = {}

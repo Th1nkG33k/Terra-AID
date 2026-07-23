@@ -1,15 +1,22 @@
 import PySimpleGUI as sg
 
-from Interface.theme import RText, RButton, COLORS, FONTS, BUTTON_COLORS
+from Interface.theme import (
+    RText,
+    RButton,
+    RScrollableSelector,
+    COLORS,
+    FONTS,
+    BUTTON_COLORS,
+)
 from Core.Managers.model_manager import ModelManager
 
 
 # ============================================================
 # MODELS PAGE
 #
-#   Model landing page with an embedded selector.
-#   This replaces the old two-button page and avoids opening the
-#   separate Select Model task popup from the Models page.
+#   Model landing page with an embedded selector. The filter is
+#   stacked above the model list to give each result row enough
+#   width for its details and Select action.
 # ============================================================
 class PageModels:
     key = "-PAGE_MODELS-"
@@ -55,7 +62,10 @@ class PageModels:
             if cfg is None:
                 continue
 
-            architecture = self._safe(getattr(getattr(cfg, "architecture", None), "type", None), "unknown")
+            architecture = self._safe(
+                getattr(getattr(cfg, "architecture", None), "type", None),
+                "unknown",
+            )
             stage = self._safe(getattr(cfg, "stage", None), "unknown")
             epochs = self._safe(getattr(getattr(cfg, "training", None), "epochs", None), "?")
             device = self._safe(getattr(cfg, "device", None), "?")
@@ -69,7 +79,10 @@ class PageModels:
                     channels = getattr(ds, "num_input_channels", None) or "?"
                     profile = f"derived_{channels}ch" if channels != "?" else "no dataset"
 
-            label = f"{epochs} epochs | {device} | {profile} | {channels} ch | {stage}"
+            label = (
+                f"{epochs} epochs  |  {device}  |  {profile}  |  "
+                f"{channels} ch  |  {stage}"
+            )
             items.append({
                 "name": name,
                 "label": label,
@@ -95,8 +108,8 @@ class PageModels:
     # ------------------------------------------------------------
     # UI
     # ------------------------------------------------------------
-    def _build_filter_panel(self):
-        combo_style = {
+    def _combo_style(self):
+        return {
             "font": FONTS["body"],
             "background_color": COLORS["bg_panel"],
             "text_color": COLORS["text_primary"],
@@ -104,36 +117,73 @@ class PageModels:
             "button_arrow_color": COLORS["text_on_accent"],
             "readonly": True,
             "enable_events": True,
-            "size": (24, 1),
+            "size": (20, 1),
         }
+
+    def _build_filter_panel(self):
+        combo_style = self._combo_style()
 
         return sg.Column(
             [
-                [RText("Filter", font=FONTS["header"], justification="center")],
                 [
-                    RText("Architecture", w=0.12),
-                    sg.Combo(["All Architectures"], default_value="All Architectures", key=self.filter_arch_key, **combo_style),
+                    RText(
+                        "Filter models",
+                        font=FONTS["body_bold"],
+                        color=COLORS["accent_highlight"],
+                        bg=COLORS["bg_surface"],
+                    )
                 ],
                 [
-                    RText("Stage", w=0.12),
-                    sg.Combo(["All Stages"], default_value="All Stages", key=self.filter_stage_key, **combo_style),
+                    RText("Architecture", color=COLORS["text_secondary"], bg=COLORS["bg_surface"]),
+                    sg.Combo(
+                        ["All Architectures"],
+                        default_value="All Architectures",
+                        key=self.filter_arch_key,
+                        **combo_style,
+                    ),
+                    RText("Stage", color=COLORS["text_secondary"], bg=COLORS["bg_surface"]),
+                    sg.Combo(
+                        ["All Stages"],
+                        default_value="All Stages",
+                        key=self.filter_stage_key,
+                        **combo_style,
+                    ),
                 ],
             ],
-            background_color=COLORS["bg_dark"],
-            element_justification="center",
-            vertical_alignment="top",
-            pad=((40, 30), (35, 0)),
-            expand_y=True,
+            background_color=COLORS["bg_surface"],
+            pad=((0, 0), (8, 10)),
+            expand_x=True,
+            element_justification="left",
         )
 
     def _build_list_row(self, idx):
+        row_bg = COLORS["bg_surface"] if idx % 2 == 0 else COLORS["bg_panel"]
+
         info_col = sg.Column(
             [
-                [sg.Text("", key=self._name_key(idx), font=FONTS["body"], text_color=COLORS["text_primary"], background_color=COLORS["bg_panel"], size=(28, 1))],
-                [sg.Text("", key=self._label_key(idx), font=FONTS["body"], text_color=COLORS["text_primary"], background_color=COLORS["bg_panel"], size=(36, 1))],
+                [
+                    sg.Text(
+                        "",
+                        key=self._name_key(idx),
+                        font=FONTS["body_bold"],
+                        text_color=COLORS["text_primary"],
+                        background_color=row_bg,
+                        size=(34, 1),
+                    )
+                ],
+                [
+                    sg.Text(
+                        "",
+                        key=self._label_key(idx),
+                        font=FONTS["body"],
+                        text_color=COLORS["text_secondary"],
+                        background_color=row_bg,
+                        size=(50, 1),
+                    )
+                ],
             ],
-            background_color=COLORS["bg_panel"],
-            pad=(8, 6),
+            background_color=row_bg,
+            pad=((12, 6), (7, 7)),
             expand_x=True,
         )
 
@@ -145,44 +195,87 @@ class PageModels:
             mouseover_colors=BUTTON_COLORS["primary_hover"],
             border_width=0,
             size=(8, 1),
-            pad=(8, 8),
+            pad=((8, 12), (8, 8)),
         )
 
         return sg.pin(
             sg.Column(
                 [[info_col, button]],
                 key=self._row_key(idx),
-                background_color=COLORS["bg_panel"],
+                background_color=row_bg,
                 visible=False,
-                pad=(4, 4),
+                pad=((4, 4), (3, 3)),
                 expand_x=True,
             )
         )
 
     def _build_selector_panel(self):
         rows = [[self._build_list_row(idx)] for idx in range(self.MAX_ROWS)]
-
-        list_col = sg.Column(
-            rows,
+        list_col = RScrollableSelector(
             key=self.list_key,
+            layout=rows,
+            w=0.48,
+            h=0.55,
+            min_w=500,
+            max_w=820,
+            min_h=310,
+            max_h=535,
             background_color=COLORS["bg_panel"],
-            scrollable=True,
-            vertical_scroll_only=True,
-            size=(390, 445),
-            pad=(0, 0),
-            expand_y=True,
         )
 
         return sg.Column(
             [
-                [RText("Load Model", color=COLORS["accent_highlight"], font=FONTS["header"], justification="center")],
+                [
+                    RText(
+                        "Load Model",
+                        color=COLORS["accent_highlight"],
+                        font=FONTS["header"],
+                    )
+                ],
+                [
+                    RText(
+                        "Choose an existing model to review, train, evaluate or run predictions.",
+                        color=COLORS["text_secondary"],
+                    )
+                ],
+                [self._build_filter_panel()],
+                [sg.HorizontalSeparator(color=COLORS["line_bright"], pad=((0, 0), (0, 8)))],
                 [list_col],
             ],
             background_color=COLORS["bg_dark"],
-            element_justification="center",
+            element_justification="left",
             vertical_alignment="top",
-            pad=((20, 0), (25, 0)),
+            pad=((28, 12), (24, 0)),
+            expand_x=True,
             expand_y=True,
+        )
+
+    def _build_create_panel(self):
+        return sg.Column(
+            [
+                [
+                    RText(
+                        "Create Model",
+                        color=COLORS["accent_highlight"],
+                        bg=COLORS["bg_surface"],
+                        font=FONTS["header"],
+                    )
+                ],
+                [
+                    sg.Text(
+                        "Configure a new architecture and prepare it for training against an existing dataset.",
+                        font=FONTS["body"],
+                        text_color=COLORS["text_secondary"],
+                        background_color=COLORS["bg_surface"],
+                        size=(34, 3),
+                    )
+                ],
+                [RButton("Create New Model", key="-PAGE_CREATE_MODEL_CONF-", pad=((0, 0), (12, 4)))],
+            ],
+            background_color=COLORS["bg_surface"],
+            vertical_alignment="top",
+            pad=((38, 28), (24, 0)),
+            size=(310, 180),
         )
 
     def build(self, window):
@@ -191,19 +284,9 @@ class PageModels:
         title_row = [RText("Models", key="-MODELS_TITLE-", w=0.30)]
         separator = [sg.HorizontalSeparator(color=COLORS["line_bright"])]
 
-        create_panel = sg.Column(
-            [
-                [RButton("Create New Model", key="-PAGE_CREATE_MODEL_CONF-", w=0.16)],
-            ],
-            background_color=COLORS["bg_dark"],
-            vertical_alignment="top",
-            pad=((45, 40), (35, 0)),
-        )
-
         content_row = [
-            create_panel,
-            self._build_filter_panel(),
-            sg.VSeparator(color=COLORS["line_bright"]),
+            self._build_create_panel(),
+            sg.VSeparator(color=COLORS["line_bright"], pad=((12, 0), (24, 8))),
             self._build_selector_panel(),
         ]
 
@@ -214,12 +297,13 @@ class PageModels:
             [sg.HorizontalSeparator(color=COLORS["line_bright"])],
         ]
 
-        return sg.Column(layout,
-                         key=self.key,
-                         expand_x=True,
-                         expand_y=True,
-                         background_color=COLORS["bg_dark"],
-                         visible=False,
+        return sg.Column(
+            layout,
+            key=self.key,
+            expand_x=True,
+            expand_y=True,
+            background_color=COLORS["bg_dark"],
+            visible=False,
         )
 
     # ------------------------------------------------------------
@@ -260,7 +344,6 @@ class PageModels:
         arch_filter = self._normalise_filter(arch_value, "All Architectures")
         stage_filter = self._normalise_filter(stage_value, "All Stages")
 
-        visible_idx = 0
         for idx, item in enumerate(self.model_items[:self.MAX_ROWS]):
             is_visible = self._matches_filters(item, arch_filter, stage_filter)
             try:
@@ -269,8 +352,6 @@ class PageModels:
                 window[self._row_key(idx)].update(visible=is_visible)
             except Exception:
                 pass
-            if is_visible:
-                visible_idx += 1
 
         for idx in range(len(self.model_items), self.MAX_ROWS):
             try:
@@ -304,9 +385,6 @@ class PageModels:
 
         return self.model_items[idx]["name"]
 
-    # ------------------------------------------------------------
-    # WORKER MESSAGE HANDLER
-    # ------------------------------------------------------------
     def on_worker_message(self, task_id, msg_type, data):
         match msg_type:
             case "status":

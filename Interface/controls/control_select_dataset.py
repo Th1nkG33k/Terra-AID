@@ -50,12 +50,12 @@ class ControlSelectDataset(ControlSelectBase):
     def _display_role(self, role):
         role = str(role or "mixed").strip().lower()
         mapping = {
-            "predictive": "evaluation",
-            "ground_truth": "evaluation",
-            "validation": "evaluation",
-            "evaluation": "prediction",
-            "discovery": "prediction",
-            "survey": "prediction",
+                    "predictive": "evaluation",
+                    "ground_truth": "evaluation",
+                    "validation": "evaluation",
+                    "evaluation": "prediction",
+                    "discovery": "prediction",
+                    "survey": "prediction",
         }
         return mapping.get(role, role)
 
@@ -179,7 +179,7 @@ class ControlSelectDataset(ControlSelectBase):
         control_layout = self.build(parent_window)
 
         win = sg.Window(self.title,
-                        [[control_layout]],   # <-- THIS is the correct wrapping
+                        [[control_layout]],   # <-- correct wrapping
                         modal=True,
                         keep_on_top=True,
                         finalize=True,
