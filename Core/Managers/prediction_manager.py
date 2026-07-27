@@ -740,10 +740,10 @@ class PredictionManager:
         else:
             raw = {}
 
-        raw_preset = raw.get("prediction_preset", raw.get("preset", "Balanced"))
-        preset_label = "Balanced" if self._is_missing_config_value(raw_preset) else str(raw_preset).strip()
+        raw_preset = raw.get("prediction_preset", raw.get("preset", "conservative"))
+        preset_label = "conservative" if self._is_missing_config_value(raw_preset) else str(raw_preset).strip()
         preset_name = preset_label.lower()
-        preset = dict(self.PREDICTION_PRESETS.get(preset_name, self.PREDICTION_PRESETS["balanced"]))
+        preset = dict(self.PREDICTION_PRESETS.get(preset_name, self.PREDICTION_PRESETS["conservative"]))
 
         # ----------------------------------------------------------------------------
         # Explicit user/model values override the preset. Empty/null-like values

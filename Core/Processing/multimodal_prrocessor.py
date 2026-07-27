@@ -1,5 +1,6 @@
 
 import json
+import re
 import shutil
 import numpy as np
 import rasterio
@@ -183,15 +184,56 @@ class MultimodalProcessor:
 
         return np.stack([ndvi, bsi], axis=0)
 
-    def _find_dem_raster(self) -> Path | None:
+    @staticmethod
+    def _natural_key(path: Path):
 
-        tifs = sorted(self.raw_dem_root.glob("*.tif"))
-        return tifs[0] if tifs else None
+        return [int(part) if part.isdigit() else part.lower()
+                for part in re.split(r"(\d+)", str(path))]
 
-    def _find_soil_raster(self) -> Path | None:
+    @staticmethod
+    def _tile_index_from_path(path: Path) -> int | None:
 
-        tifs = sorted(self.raw_soil_root.rglob("*.tif"))
-        return tifs[0] if tifs else None
+        # Prefer an explicit ``tile <n>`` directory, then fall back to the
+        # filename (for example HS2_tile_12.tif).
+        for part in reversed(path.parts):
+            match = re.fullmatch(r"tile[ _-]?(\d+)", part, flags=re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+
+        matches = re.findall(r"(?:^|[_ -])tile[_ -]?(\d+)(?:$|[_ .-])", path.stem, flags=re.IGNORECASE)
+        if matches:
+            return int(matches[-1])
+
+        numeric_tokens = re.findall(r"\d+", path.stem)
+        return int(numeric_tokens[-1]) if numeric_tokens else None
+
+    def _find_matching_raster(self, root: Path, tile_index: int | None = None) -> Path | None:
+
+        candidates = sorted(
+            [*root.rglob("*.tif"), *root.rglob("*.tiff")],
+            key=self._natural_key,
+        )
+
+        if not candidates:
+            return None
+
+        if tile_index is not None:
+            matching = [path for path in candidates if self._tile_index_from_path(path) == tile_index]
+            if matching:
+                return matching[0]
+
+        # A single AOI-wide raster is valid for every S2 tile.  For backwards
+        # compatibility, when multiple unnumbered rasters exist use the first
+        # stable natural-sort match.
+        return candidates[0]
+
+    def _find_dem_raster(self, tile_index: int | None = None) -> Path | None:
+
+        return self._find_matching_raster(self.raw_dem_root, tile_index=tile_index)
+
+    def _find_soil_raster(self, tile_index: int | None = None) -> Path | None:
+
+        return self._find_matching_raster(self.raw_soil_root, tile_index=tile_index)
 
     # ---------------------------------------------------------
     # Profile-driven model input helpers
@@ -444,8 +486,17 @@ class MultimodalProcessor:
                 path = self.cfg.paths.root / path
             return [path]
 
-        # Terra-AID writes one AOI-level archaeology vector and clips it to each tile.
-        return [source_root / "archaeology_selected.geojson"]
+        # Prefer the canonical raw tile-folder layout.  Retain an AOI-level
+        # fallback so older labelled datasets continue to process.
+        candidates = []
+        for folder_name in (s2_path.parent.name, tile_dir.name):
+            candidate = source_root / folder_name / "archaeology_selected.geojson"
+            if candidate not in candidates:
+                candidates.append(candidate)
+
+        candidates.append(source_root / "archaeology_selected.geojson")
+        candidates.append(source_root / "hs2_archaeology_ground_truth.geojson")
+        return candidates
 
 
     # ---------------------------------------------------------
@@ -685,7 +736,7 @@ class MultimodalProcessor:
         # DEM (only if valid)
         # -----------------------------------------------------
         if self.dem_valid:
-            dem_raster = self._find_dem_raster()
+            dem_raster = self._find_dem_raster(tile_index=tile_index)
             dem_resampled = self.dem_proc.load_and_resample(dem_raster, target_profile)
 
         else:
@@ -695,7 +746,7 @@ class MultimodalProcessor:
         # Soil (only if valid)
         # -----------------------------------------------------
         if self.soil_valid:
-            soil_raster = self._find_soil_raster()
+            soil_raster = self._find_soil_raster(tile_index=tile_index)
             soil_resampled = self.soil_proc.load_and_resample(soil_raster, target_profile)
 
         else:
@@ -842,20 +893,30 @@ class MultimodalProcessor:
 
 
     # ---------------------------------------------------------
-    # Discover raw S2 files from the canonical flat layout.
+    # Discover raw S2 files below Raw/S2/images.
+    #
+    # Canonical datasets use one raw folder per tile, but recursive discovery
+    # also keeps older flat datasets compatible.
     # ---------------------------------------------------------
     def _discover_s2_files(self) -> list[Path]:
 
-        direct_images_dir = self.raw_s2_root / "images"
-        s2_files = []
+        images_dir = self.raw_s2_root / "images"
+        if not images_dir.exists():
+            return []
 
-        if direct_images_dir.exists():
-            print(f"RUN - Image_Dir: {direct_images_dir}")
-            s2_files.extend(sorted(direct_images_dir.glob("*.tif")))
-            s2_files.extend(sorted(direct_images_dir.glob("*.tiff")))
+        print(f"RUN - Image_Dir: {images_dir}")
+        s2_files = [*images_dir.rglob("*.tif"), *images_dir.rglob("*.tiff")]
+        unique = list(dict.fromkeys(path for path in s2_files if path.is_file()))
 
-        # Return unique paths in a stable order.
-        return sorted(dict.fromkeys(s2_files))
+        return sorted(
+            unique,
+            key=lambda path: (
+                self._tile_index_from_path(path)
+                if self._tile_index_from_path(path) is not None
+                else 10**9,
+                self._natural_key(path),
+            ),
+        )
 
 
     # ---------------------------------------------------------
@@ -868,15 +929,30 @@ class MultimodalProcessor:
         if not s2_files:
             raise FileNotFoundError(
                 "No Sentinel-2 .tif image files found. Expected:\n"
-                f"  {self.raw_s2_root / 'images'}/*.tif"
+                f"  {self.raw_s2_root / 'images'}/tile <n>/*.tif\n"
+                f"or legacy flat files below {self.raw_s2_root / 'images'}"
             )
 
         self._clear_processed_tiles()
 
         built_tiles = 0
 
-        for tile_index, s2_file in enumerate(s2_files):
+        used_tile_indices = set()
 
+        for fallback_index, s2_file in enumerate(s2_files):
+
+            tile_index = self._tile_index_from_path(s2_file)
+            if tile_index is None:
+                tile_index = fallback_index
+                while tile_index in used_tile_indices:
+                    tile_index += 1
+
+            if tile_index in used_tile_indices:
+                raise RuntimeError(
+                    f"Multiple S2 files resolve to tile {tile_index}: {s2_file}"
+                )
+
+            used_tile_indices.add(tile_index)
             print(f"Build Tile {tile_index}: {s2_file}")
             self.build_tile(s2_file, tile_index=tile_index)
             built_tiles += 1

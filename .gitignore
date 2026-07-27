@@ -12,4 +12,9 @@ Interface/controls/__pycache__
 Interface/pages/__pycache__
 Models/__pycache__
 XAI/__pycache__
-ipynb
+ipynb/
+Terra-AID.zip
+ipynb/dem.ipynb
+ipynb/soil.ipynb
+Core/Processing/multimodal_prrocessor - Copy.py
+ipynb/dem.ipynb
