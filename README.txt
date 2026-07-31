@@ -1,3 +1,4 @@
+GEO-AI
 Artificial Intelligence Archaeology Anomaly Detection Application (Python)
 
 This application is the product of a Master Degree in Artificial Intelligence.
